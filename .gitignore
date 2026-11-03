@@ -24,8 +24,10 @@ secrets/
 # Experimentos, artefactos y modelos
 mlruns/
 mlartifacts/
-artifacts/
-models/
+/artifacts/
+/models/
+/ml/models/
+/ml/artifacts/
 *.ckpt
 *.safetensors
 *.gguf
@@ -36,10 +38,13 @@ models/
 *.joblib
 *.pkl
 wandb/
-outputs/
+/outputs/
+/ml/outputs/
 
-# Volúmenes locales de servicios
+# Volúmenes locales de servicios y bases locales
 infra/.volumes/
+label-studio/
+*.sqlite3
 
 # ---------------- Python ----------------
 __pycache__/
@@ -53,7 +58,7 @@ dist/
 .eggs/
 .venv/
 venv/
-env/
+/env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
