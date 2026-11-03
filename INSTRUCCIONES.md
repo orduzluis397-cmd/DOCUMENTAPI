@@ -76,7 +76,7 @@ responsable de IVA y agente de retención, con ~130 compras al mes. Hoy el cierr
 |------|-------------|--------------|
 | Interfaz | Aplicación web; cliente MCP externo | Next.js (App Router, TypeScript, Tailwind, shadcn/ui), Clerk o Auth.js |
 | Servicio | API; workers; servidor MCP | FastAPI, Pydantic v2, Celery + Redis, SDK oficial MCP (FastMCP) |
-| Núcleo | Extracción; ML clásico; RAG; agente | lxml, Docling/PyMuPDF, Tesseract (`spa`), Instructor; scikit-learn, LightGBM, SHAP; pgvector + FTS + re-ranker; LangGraph |
+| Núcleo | Extracción; ML clásico; RAG; agente | lxml, Docling/pypdfium2, Tesseract (`spa`), Instructor; scikit-learn, LightGBM, SHAP; pgvector + FTS + re-ranker; LangGraph |
 | Modelos | Enrutador en cascada | Parser → modelo propio (vLLM) → API grande → humano |
 | Datos | Relacional, vectores, auditoría, checkpoints, archivos, experimentos | PostgreSQL 16/17 + pgvector, R2/S3 (MinIO en local), MLflow |
 | Calidad (transversal) | Trazas, evals, jueces, políticas, auditoría, costo | Langfuse (o Arize Phoenix), DeepEval + pytest, GitHub Actions |
@@ -210,7 +210,7 @@ de referencia del RAG (F2) y escenarios de conciliación (F3). Glosario en `docs
 ## 7. Preparación (antes de la semana 1)
 
 1. Repositorio público `contable-ia`, licencia MIT, `.gitignore` Python + Node, `data/` ignorada.
-2. Backend: `uv init apps/api`; `uv add fastapi "uvicorn[standard]" pydantic pydantic-settings sqlalchemy alembic "psycopg[binary]" celery redis instructor httpx lxml pymupdf`; `uv add --dev pytest ruff mypy`.
+2. Backend: `uv init apps/api`; `uv add fastapi "uvicorn[standard]" pydantic pydantic-settings sqlalchemy alembic "psycopg[binary]" celery redis instructor httpx lxml pypdfium2`; `uv add --dev pytest ruff mypy`.
 3. Frontend: `pnpm create next-app apps/web --ts --tailwind --app` + shadcn/ui.
 4. `infra/docker-compose.yml`: `postgres` (imagen `pgvector/pgvector`, Postgres 16 o 17), `redis`, `minio`, `phoenix` opcional.
 5. pre-commit: Ruff, mypy, Prettier, gitleaks.
@@ -261,7 +261,7 @@ URL pública con la primera cifra de precisión por campo.
 
 ### 8.3 Extractor v0 y aplicación (semanas 2–3)
 
-- `app/extraction/router.py`: XML de factura → `lxml` (sin LLM); PDF con texto → Docling/PyMuPDF; imagen/escaneo → Tesseract `spa` (PaddleOCR si baja calidad); clasificación con LLM (`Literal` de tipos); extracción con Instructor al esquema del tipo; campos que no pasan validadores tras reintentos → `is_doubtful=true`.
+- `app/extraction/router.py`: XML de factura → `lxml` (sin LLM); PDF con texto → Docling/pypdfium2 (no PyMuPDF en la API: AGPL, ver CR-003); imagen/escaneo → Tesseract `spa` (PaddleOCR si baja calidad); clasificación con LLM (`Literal` de tipos); extracción con Instructor al esquema del tipo; campos que no pasan validadores tras reintentos → `is_doubtful=true`.
 - Registro de cada llamada LLM en `llm_calls`.
 - BD (SQLAlchemy 2 + Alembic): `organizations`, `users`, `documents`, `extractions`, `extracted_fields` (`is_doubtful`, `corrected_value`), `llm_calls`, `audit_events`. RLS por `organization_id`.
 - API: `POST /documents` (sube a MinIO/R2, encola Celery), `GET /documents/{id}`, `PATCH /fields/{id}` (corrección → `audit_events`).

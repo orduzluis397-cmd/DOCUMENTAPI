@@ -51,3 +51,10 @@ Opción 1.
 - La CI del monorepo crece: se mitiga con filtros por ruta en los workflows y cachés de uv/pnpm.
 - Dos gestores de paquetes (uv y pnpm) conviven en el mismo repo; los hooks de pre-commit los
   requieren a ambos en el PATH.
+
+## Adenda 2026-11-03 · Licencias de dependencias (CR-003)
+
+El repositorio es MIT y la API se servirá en red. PyMuPDF es AGPL-3.0, cuya cláusula de red
+obligaría a licenciar la API como AGPL. **Decisión:** la API no depende de PyMuPDF; el texto de
+PDF se lee con `pypdfium2` (Apache-2.0/BSD-3) o Docling (MIT). Toda dependencia nueva de `apps/`
+debe tener licencia compatible con MIT; las copyleft fuertes (GPL/AGPL) requieren ADR.

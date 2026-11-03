@@ -13,6 +13,7 @@
 |----|-------|--------|------|--------|
 | CR-001 | 2026-11-03 | Repo privado durante el desarrollo | menor | rechazado (reemplazado por CR-002) |
 | CR-002 | 2026-11-03 | Repo público desde ya | menor | hecho |
+| CR-003 | 2026-11-03 | pypdfium2 en lugar de PyMuPDF en la API | mayor | hecho (API) · pendiente decisión anonimizador |
 
 ---
 
@@ -51,6 +52,25 @@
 - **Estado:** hecho
 - **Verificación:** `gh repo view` → visibility PUBLIC, repo vacío
 - **Commits / PR:** —
+
+---
+
+### CR-003 · pypdfium2 en lugar de PyMuPDF en la API
+
+- **Fecha:** 2026-11-03
+- **Pedido del usuario:** "vamos con la opción recomendada" (A: `pypdfium2`)
+- **Interpretación:** la API (repo MIT, servida en red) no depende de PyMuPDF (AGPL-3.0). Lectura de texto de PDF con `pypdfium2` (Apache-2.0/BSD-3) o Docling (MIT).
+- **Tipo:** mayor (cambio de dependencia del núcleo)
+- **Fases y agentes afectados:** F0 (`extraccion-app`, `datos-corpus` por la redacción de PDF en `ml/anonymize.py`).
+- **Archivos o módulos:** `apps/api/pyproject.toml`, `uv.lock`, INSTRUCCIONES.md §3/§7.2/§8.3, `.claude/agents/extraccion-app.md`, README.md, README.es.md, adenda en ADR 0001.
+- **Evals afectadas / nuevas:** ninguna aún (no hay extractor).
+- **Costo, calendario y riesgo:** sin costo. Riesgo: `pypdfium2` no hace redacción real (borrar texto del PDF), que §8.1 pide para anonimizar → decisión pendiente para `ml/anonymize.py`.
+- **Reglas duras involucradas:** 1 (la anonimización de PDF debe seguir siendo segura).
+- **Plan:** 1. Cambiar dependencia ✔. 2. Actualizar documentación y ADR ✔. 3. Usuario decide herramienta de redacción del anonimizador.
+- **Aprobación del usuario:** aprobada el 2026-11-03
+- **Estado:** hecho (API) · pendiente decisión del anonimizador
+- **Verificación:** `uv run pytest` 1 passed; `mypy app` sin errores; `uv.lock` sin pymupdf.
+- **Commits / PR:** ver `git log` (CR-003)
 
 ---
 

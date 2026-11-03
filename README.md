@@ -41,7 +41,7 @@ closing the month takes her 2 days. The planned flow:
 |-------|------------|-------|
 | Interface | Web app; external MCP client | Next.js (App Router, TypeScript, Tailwind, shadcn/ui), Clerk or Auth.js |
 | Service | API; workers; MCP server | FastAPI, Pydantic v2, Celery + Redis, official MCP SDK (FastMCP) |
-| Core | Extraction; classic ML; RAG; agent | lxml, Docling/PyMuPDF, Tesseract (`spa`), Instructor; scikit-learn, LightGBM, SHAP; pgvector + FTS + re-ranker; LangGraph |
+| Core | Extraction; classic ML; RAG; agent | lxml, Docling/pypdfium2, Tesseract (`spa`), Instructor; scikit-learn, LightGBM, SHAP; pgvector + FTS + re-ranker; LangGraph |
 | Models | Cascading router | Parser → own model (vLLM) → large API model → human |
 | Data | Relational, vectors, audit, checkpoints, files, experiments | PostgreSQL 16/17 + pgvector, R2/S3 (MinIO locally), MLflow |
 | Quality (cross-cutting) | Traces, evals, judges, policies, audit, cost | Langfuse (or Arize Phoenix), DeepEval + pytest, GitHub Actions |

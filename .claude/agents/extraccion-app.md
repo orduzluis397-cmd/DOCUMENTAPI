@@ -28,7 +28,7 @@ Fuera de alcance: esquemas (los cambia `datos-corpus`), suites de evals y jueces
 ## Pasos
 
 1. `app/extraction/router.py`: XML de factura → `lxml` (sin LLM); PDF con texto → Docling o
-   PyMuPDF; imagen/escaneo → Tesseract `spa`; clasificación por LLM (`Literal` de tipos);
+   pypdfium2 (no PyMuPDF: AGPL, ver CR-003); imagen/escaneo → Tesseract `spa`; clasificación por LLM (`Literal` de tipos);
    extracción con Instructor al esquema; reintentos; `is_doubtful` en campos que no validan.
 2. `app/observability/`: registro de cada llamada LLM en `llm_calls` (modelo, tokens, costo USD,
    latencia, `trace_id`, `document_id`).

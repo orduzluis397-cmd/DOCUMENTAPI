@@ -40,7 +40,7 @@ previsto:
 |------|-------------|--------------|
 | Interfaz | Aplicación web; cliente MCP externo | Next.js (App Router, TypeScript, Tailwind, shadcn/ui), Clerk o Auth.js |
 | Servicio | API; workers; servidor MCP | FastAPI, Pydantic v2, Celery + Redis, SDK oficial MCP (FastMCP) |
-| Núcleo | Extracción; ML clásico; RAG; agente | lxml, Docling/PyMuPDF, Tesseract (`spa`), Instructor; scikit-learn, LightGBM, SHAP; pgvector + FTS + re-ranker; LangGraph |
+| Núcleo | Extracción; ML clásico; RAG; agente | lxml, Docling/pypdfium2, Tesseract (`spa`), Instructor; scikit-learn, LightGBM, SHAP; pgvector + FTS + re-ranker; LangGraph |
 | Modelos | Enrutador en cascada | Parser → modelo propio (vLLM) → API grande → humano |
 | Datos | Relacional, vectores, auditoría, checkpoints, archivos, experimentos | PostgreSQL 16/17 + pgvector, R2/S3 (MinIO en local), MLflow |
 | Calidad (transversal) | Trazas, evals, jueces, políticas, auditoría, costo | Langfuse (o Arize Phoenix), DeepEval + pytest, GitHub Actions |
