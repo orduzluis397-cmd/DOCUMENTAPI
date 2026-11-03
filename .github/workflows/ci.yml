@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,6 +17,7 @@ jobs:
   api:
     name: API · lint, tipos y pruebas
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/api
@@ -25,6 +27,7 @@ jobs:
       - name: Instalar uv
         uses: astral-sh/setup-uv@v6
         with:
+          version: "0.13.7"
           enable-cache: true
           cache-dependency-glob: apps/api/uv.lock
 
@@ -48,6 +51,7 @@ jobs:
   web:
     name: Web · lint, tipos y build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/web
@@ -84,6 +88,7 @@ jobs:
   secrets:
     name: Secretos · gitleaks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,6 +98,53 @@ jobs:
         env:
           GITLEAKS_VERSION: 8.30.0
         run: |
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            | tar -xz gitleaks
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfLO "${base}/${tarball}"
+          curl -sSfLO "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          sha256sum -c --ignore-missing "gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          tar -xzf "${tarball}" gitleaks
           ./gitleaks git . --redact --verbose
+
+  repo:
+    name: Repo · pre-commit y data/
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Regla dura 1 (CLAUDE.md): nada de data/ en el repositorio.
+      - name: data/ vacío en el repositorio
+        run: |
+          tracked="$(git ls-files data/)"
+          if [ -n "${tracked}" ]; then
+            echo "::error::Hay archivos de data/ versionados (CLAUDE.md, regla 1):"
+            echo "${tracked}"
+            exit 1
+          fi
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.7"
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+
+      - name: Dependencias de la API (trae pre-commit)
+        working-directory: apps/api
+        run: |
+          uv python install 3.12
+          uv sync --locked
+
+      - name: Caché de pre-commit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      # Hooks genéricos, Ruff y no-data. mypy, Prettier, ESLint y gitleaks ya corren en sus
+      # propios jobs (los hooks locales necesitarían pnpm aquí).
+      - name: pre-commit
+        env:
+          SKIP: mypy,prettier,eslint,gitleaks
+        run: uv run --directory apps/api pre-commit run --all-files --show-diff-on-failure
