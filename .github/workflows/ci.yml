@@ -90,6 +90,9 @@ jobs:
           fetch-depth: 0
 
       - name: gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.0
         run: |
-          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.0 \
-            git /repo --redact --verbose
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks git . --redact --verbose
