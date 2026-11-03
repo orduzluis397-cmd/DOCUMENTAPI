@@ -56,4 +56,4 @@
 
 ## Próximo paso
 
-- Informe de cierre de la Preparación y aprobación del usuario para abrir la Fase 0. Pendiente aún: GitHub Projects (§7.8).
+- Informe de cierre de la Preparación y aprobación del usuario para abrir la Fase 0. GitHub Projects creado: https://github.com/users/orduzluis397-cmd/projects/1 (26 issues).
