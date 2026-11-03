@@ -46,6 +46,13 @@
 - 2026-11-03: instalados uv 0.13.7, pnpm 12.16.1, gh 2.103.3, Docker Desktop 4.98 (sin WSL2 aún).
 - 2026-11-03: `git init -b main`, remoto `origin` → github.com/orduzluis397-cmd/DOCUMENTAPI.
 
+## Hallazgos para la Fase 0 (del glosario, experto-contable, 2026-11-03)
+
+- `datos-corpus`: definir en GUIA.md si `total` = valor facturado o neto a pagar (en el XML las retenciones van en `WithholdingTaxTotal` y quizá no se restan de `PayableAmount`); ajustar el validador de totales.
+- `datos-corpus`: responsabilidades de la casilla 53 como catálogo con vigencia (la 09 fue retirada de oficio), no `Enum` cerrado.
+- `datos-corpus`: ampliar la regex de NIT del anonimizador a NIT de persona natural (longitud variable) y probarla — regla dura 1.
+- Contador asesor: 11 puntos pendientes al final de `docs/glosario.md`.
+
 ## Próximo paso
 
 - Agente `preparacion-entorno` ejecutando §7 pasos 2–9 (sin push ni Docker hasta resolver bloqueos).
