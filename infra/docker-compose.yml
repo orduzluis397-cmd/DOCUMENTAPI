@@ -1,10 +1,14 @@
 # Servicios locales de Contable IA.
 #
-#   docker compose -f infra/docker-compose.yml --env-file .env up -d
+#   docker compose -f infra/docker-compose.yml up -d
 #   docker compose -f infra/docker-compose.yml --profile observability up -d   # + Phoenix
 #
-# Sin --env-file se usan los valores por defecto de abajo (solo para desarrollo local;
-# no son secretos reales). Las variables están documentadas en .env.example.
+# Compose no lee el .env de la raíz (busca .env junto a este archivo), así que se usan los
+# valores por defecto de abajo. Son IGUALES a los de .env.example: `cp .env.example .env`
+# y este comando funcionan juntos sin --env-file. Son credenciales solo para desarrollo
+# local, no secretos reales. Si cambias uno en tu .env, pasa también --env-file .env.
+#
+# Todos los puertos se publican solo en 127.0.0.1 (no quedan expuestos en la red local).
 name: contable-ia
 
 services:
@@ -16,7 +20,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-contable_local}
       POSTGRES_DB: ${POSTGRES_DB:-contable_ia}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
@@ -31,7 +35,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -52,8 +56,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_local}
     ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -88,8 +92,8 @@ services:
     profiles: ["observability"]
     restart: unless-stopped
     ports:
-      - "${PHOENIX_PORT:-6006}:6006"
-      - "${PHOENIX_OTLP_GRPC_PORT:-4317}:4317"
+      - "127.0.0.1:${PHOENIX_PORT:-6006}:6006"
+      - "127.0.0.1:${PHOENIX_OTLP_GRPC_PORT:-4317}:4317"
     volumes:
       - phoenix-data:/mnt/data
     environment:
