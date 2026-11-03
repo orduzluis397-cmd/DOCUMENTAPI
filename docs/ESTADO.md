@@ -3,15 +3,23 @@
 > Lo mantiene el orquestador. Se actualiza al final de cada paso y de cada sesión.
 
 **Última actualización:** 2026-11-03
-**Fase actual:** Preparación · semana 0 de 22
+**Fase actual:** 0 · Datos y línea base · semana 1 de 22
 
-## Criterios de salida de la fase actual
+## Criterios de salida de la Preparación (cerrada 2026-11-03)
 
 - [x] `docker compose up` levanta postgres, redis y minio (verificado 2026-11-03)
 - [x] `uv run pytest` y `pnpm lint` en verde
 - [x] `ci.yml` corre en cada push — run 41704806661 verde (4 jobs)
 - [x] ADR 0001 escrito
 - [~] Política de tratamiento de datos y formato de autorización: borradores en `docs/legal/`; falta llenar placeholders y revisión de abogado
+
+## Criterios de salida de la Fase 0
+
+- [ ] URL pública con login
+- [ ] 250 documentos anonimizados y anotados
+- [ ] Conjunto de prueba congelado
+- [ ] Informe de línea base (precisión por campo, docs 100 %, costo/doc, p50/p95)
+- [ ] ADR 0002 (parser determinista para XML; LLM solo para formatos libres)
 
 ## Cifras clave
 
@@ -27,8 +35,8 @@
 
 | Fase | Estado | Cerrada el |
 |------|--------|-----------|
-| Preparación | en curso | — |
-| 0 · Datos y línea base | pendiente | — |
+| Preparación | cerrada | 2026-11-03 |
+| 0 · Datos y línea base | en curso | — |
 | 1 · Evals primero | pendiente | — |
 | 2 · RAG y ML clásico | pendiente | — |
 | 3 · Agente gobernado y MCP | pendiente | — |
@@ -56,4 +64,5 @@
 
 ## Próximo paso
 
-- Informe de cierre de la Preparación y aprobación del usuario para abrir la Fase 0. GitHub Projects creado: https://github.com/users/orduzluis397-cmd/projects/1 (26 issues).
+- Usuario: recolectar documentos (meta 100 al final de la semana 1).
+- En paralelo (ramas `fase-0/*`): `datos-corpus` → anonimizador, esquemas, validadores, GUIA.md; `extraccion-app` → BD con RLS, API, worker y web.

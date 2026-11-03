@@ -13,7 +13,7 @@
 |----|-------|--------|------|--------|
 | CR-001 | 2026-11-03 | Repo privado durante el desarrollo | menor | rechazado (reemplazado por CR-002) |
 | CR-002 | 2026-11-03 | Repo público desde ya | menor | hecho |
-| CR-003 | 2026-11-03 | pypdfium2 en lugar de PyMuPDF en la API | mayor | hecho (API) · pendiente decisión anonimizador |
+| CR-003 | 2026-11-03 | pypdfium2 en lugar de PyMuPDF en la API | mayor | hecho |
 
 ---
 
@@ -68,7 +68,8 @@
 - **Reglas duras involucradas:** 1 (la anonimización de PDF debe seguir siendo segura).
 - **Plan:** 1. Cambiar dependencia ✔. 2. Actualizar documentación y ADR ✔. 3. Usuario decide herramienta de redacción del anonimizador.
 - **Aprobación del usuario:** aprobada el 2026-11-03
-- **Estado:** hecho (API) · pendiente decisión del anonimizador
+- **Decisión anonimizador (2026-11-03):** el usuario elige PyMuPDF solo en `ml/` (proyecto uv propio, ejecución local, nunca en `apps/` ni en imágenes desplegadas). La AGPL no se activa porque el anonimizador no se sirve en red ni se distribuye como programa.
+- **Estado:** hecho
 - **Verificación:** `uv run pytest` 1 passed; `mypy app` sin errores; `uv.lock` sin pymupdf.
 - **Commits / PR:** ver `git log` (CR-003)
 
