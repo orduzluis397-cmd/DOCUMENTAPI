@@ -42,8 +42,10 @@ services:
 
   minio:
     # Las imágenes oficiales minio/minio ya no se publican en Docker Hub; se usa la build
-    # de Chainguard (mismo binario de MinIO, AGPLv3). Su nivel gratuito solo publica :latest.
-    image: cgr.dev/chainguard/minio:latest
+    # de Chainguard (mismo binario de MinIO, AGPLv3). Su nivel gratuito solo publica :latest,
+    # así que se fija por digest (tomado el 2026-11-03). Para actualizar: docker pull de :latest
+    # y docker inspect --format '{{index .RepoDigests 0}}'; cambiar el digest aquí y en minio-init.
+    image: cgr.dev/chainguard/minio:latest@sha256:3c60a2a8c4d33409a9bc7a623a7fcbfb4605adc3d89422d2f53b3f673a6e5597
     restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
@@ -62,7 +64,8 @@ services:
 
   # Tarea de una sola ejecución: crea el bucket inicial (privado) y termina.
   minio-init:
-    image: cgr.dev/chainguard/minio:latest
+    # Mismo digest que minio (2026-11-03).
+    image: cgr.dev/chainguard/minio:latest@sha256:3c60a2a8c4d33409a9bc7a623a7fcbfb4605adc3d89422d2f53b3f673a6e5597
     depends_on:
       minio:
         condition: service_healthy
