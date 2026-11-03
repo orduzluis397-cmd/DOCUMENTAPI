@@ -3,7 +3,8 @@
 # Correr:    uv run --directory apps/api pre-commit run --all-files
 # Los hooks locales requieren uv y pnpm en el PATH, y `pnpm install` hecho en apps/web.
 default_install_hook_types: [pre-commit]
-exclude: ^(data/|apps/web/pnpm-lock\.yaml$|apps/api/uv\.lock$)
+# data/ NO se excluye: el hook no-data debe verlo para bloquearlo.
+exclude: ^(apps/web/pnpm-lock\.yaml$|apps/api/uv\.lock$)
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -40,6 +41,13 @@ repos:
 
   - repo: local
     hooks:
+      # Regla dura 1: nada de data/ entra al repositorio (Ley 1581 de 2012).
+      - id: no-data
+        name: no-data (nada de data/ al repositorio)
+        entry: "Archivos de data/ no pueden entrar al repositorio (CLAUDE.md, regla 1):"
+        language: fail
+        files: ^data/
+
       # mypy estricto con el entorno de uv (ve las dependencias reales del proyecto).
       - id: mypy
         name: mypy (apps/api)
