@@ -1,0 +1,99 @@
+# Servicios locales de Contable IA.
+#
+#   docker compose -f infra/docker-compose.yml --env-file .env up -d
+#   docker compose -f infra/docker-compose.yml --profile observability up -d   # + Phoenix
+#
+# Sin --env-file se usan los valores por defecto de abajo (solo para desarrollo local;
+# no son secretos reales). Las variables están documentadas en .env.example.
+name: contable-ia
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-contable}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-contable_local}
+      POSTGRES_DB: ${POSTGRES_DB:-contable_ia}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    # Las imágenes oficiales minio/minio ya no se publican en Docker Hub; se usa la build
+    # de Chainguard (mismo binario de MinIO, AGPLv3). Su nivel gratuito solo publica :latest.
+    image: cgr.dev/chainguard/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_local}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Tarea de una sola ejecución: crea el bucket inicial (privado) y termina.
+  minio-init:
+    image: cgr.dev/chainguard/minio:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_local}
+      S3_BUCKET: ${S3_BUCKET:-contable-ia-documents}
+    entrypoint: ["bash", "-c"]
+    command:
+      - >-
+        export HOME=/tmp &&
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing "local/$$S3_BUCKET" &&
+        mc anonymous set none "local/$$S3_BUCKET" &&
+        echo "bucket $$S3_BUCKET listo"
+    restart: "no"
+
+  phoenix:
+    image: arizephoenix/phoenix:version-21.0.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    ports:
+      - "${PHOENIX_PORT:-6006}:6006"
+      - "${PHOENIX_OTLP_GRPC_PORT:-4317}:4317"
+    volumes:
+      - phoenix-data:/mnt/data
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  phoenix-data:
