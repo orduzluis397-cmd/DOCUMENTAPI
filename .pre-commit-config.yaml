@@ -1,0 +1,64 @@
+# pre-commit de Contable IA.
+# Instalar:  uv run --directory apps/api pre-commit install
+# Correr:    uv run --directory apps/api pre-commit run --all-files
+# Los hooks locales requieren uv y pnpm en el PATH, y `pnpm install` hecho en apps/web.
+default_install_hook_types: [pre-commit]
+exclude: ^(data/|apps/web/pnpm-lock\.yaml$|apps/api/uv\.lock$)
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        exclude: ^apps/web/tsconfig\.json$ # JSONC (admite comentarios)
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+
+  # Secretos: bloquea claves y tokens antes de que entren al repositorio.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  # Python (apps/api): Ruff lint + formato. Usa la configuración de apps/api/pyproject.toml.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.3
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        files: ^apps/api/
+      - id: ruff-format
+        files: ^apps/api/
+
+  - repo: local
+    hooks:
+      # mypy estricto con el entorno de uv (ve las dependencias reales del proyecto).
+      - id: mypy
+        name: mypy (apps/api)
+        entry: uv run --directory apps/api mypy app tests
+        language: system
+        files: ^apps/api/.*\.py$
+        pass_filenames: false
+
+      # TypeScript (apps/web): Prettier y ESLint con las versiones fijadas en package.json.
+      - id: prettier
+        name: prettier (apps/web)
+        entry: pnpm --dir apps/web exec prettier --check .
+        language: system
+        files: ^apps/web/
+        pass_filenames: false
+
+      - id: eslint
+        name: eslint (apps/web)
+        entry: pnpm --dir apps/web lint
+        language: system
+        files: ^apps/web/.*\.(ts|tsx|js|jsx|mjs|cjs)$
+        pass_filenames: false
