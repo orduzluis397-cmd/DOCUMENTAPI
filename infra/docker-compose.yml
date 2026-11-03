@@ -19,6 +19,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-contable}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-contable_local}
       POSTGRES_DB: ${POSTGRES_DB:-contable_ia}
+      # Rol de la aplicación y base de pruebas (los crea postgres/initdb/02-roles.sh).
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-contable_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-contable_app_local}
+      POSTGRES_TEST_DB: ${POSTGRES_TEST_DB:-contable_ia_test}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:

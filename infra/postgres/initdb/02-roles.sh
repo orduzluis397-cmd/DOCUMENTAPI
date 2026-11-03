@@ -8,7 +8,7 @@
 # - contable_ia_test: base para pruebas, con las mismas extensiones (heredadas de template1).
 #
 # Las contraseñas son solo para desarrollo local (ver .env.example).
-set -euo pipefail
+set -eo pipefail
 
 APP_USER="${POSTGRES_APP_USER:-contable_app}"
 APP_PASSWORD="${POSTGRES_APP_PASSWORD:-contable_app_local}"
