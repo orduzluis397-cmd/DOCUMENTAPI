@@ -1,4 +1,6 @@
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+
+import { buttonVariants } from "@/components/ui/button";
 
 export default function Home() {
   return (
@@ -8,8 +10,13 @@ export default function Home() {
         Document AI contable para pymes colombianas: extracción, validación, consulta normativa y
         conciliación con aprobación humana.
       </p>
-      <div>
-        <Button disabled>Cargar documentos (próximamente)</Button>
+      <div className="flex gap-2">
+        <Link href="/documents" className={buttonVariants()}>
+          Ir a documentos
+        </Link>
+        <Link href="/login" className={buttonVariants({ variant: "outline" })}>
+          Iniciar sesión
+        </Link>
       </div>
     </main>
   );
