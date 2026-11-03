@@ -1,0 +1,2 @@
+id_fuente,fuente,tipo_documento,formato,cantidad,fecha_recibido,autorizacion_id,anonimizado,revisado_100,notas
+EJEMPLO-F000,EJEMPLO contador ficticio,factura,zip_xml_pdf,0,2026-01-01,AUT-000,no,no,EJEMPLO ficticio: borrar esta fila en la copia local data/inventario.csv
