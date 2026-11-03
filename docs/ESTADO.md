@@ -7,11 +7,11 @@
 
 ## Criterios de salida de la fase actual
 
-- [ ] `docker compose up` levanta postgres, redis y minio
-- [ ] `uv run pytest` y `pnpm lint` en verde
-- [ ] `ci.yml` corre en cada push
-- [ ] ADR 0001 escrito
-- [ ] Política de tratamiento de datos y formato de autorización listos
+- [x] `docker compose up` levanta postgres, redis y minio (verificado 2026-11-03)
+- [x] `uv run pytest` y `pnpm lint` en verde
+- [x] `ci.yml` corre en cada push — run 41704806661 verde (4 jobs)
+- [x] ADR 0001 escrito
+- [~] Política de tratamiento de datos y formato de autorización: borradores en `docs/legal/`; falta llenar placeholders y revisión de abogado
 
 ## Cifras clave
 
@@ -37,8 +37,9 @@
 
 ## Bloqueos y pendientes del usuario
 
-- Instalar WSL2 (`wsl --install` como administrador + reinicio) para que Docker Desktop arranque.
-- `gh auth login` y confirmar que el repo `orduzluis397-cmd/DOCUMENTAPI` existe (hoy responde "not found": privado o no creado).
+- Decidir licencia del lector de PDF: PyMuPDF (AGPL) vs `pypdfium2` (Apache/BSD).
+- Llenar placeholders de `docs/legal/` y hacerlos revisar por un abogado.
+- Configurar tope de gasto mensual en cada proveedor.
 - Copiar `.env.example` a `.env` y poner las claves (nunca en el chat ni en el repo).
 
 ## Hecho en Preparación
@@ -55,4 +56,4 @@
 
 ## Próximo paso
 
-- Agente `preparacion-entorno` ejecutando §7 pasos 2–9 (sin push ni Docker hasta resolver bloqueos).
+- Informe de cierre de la Preparación y aprobación del usuario para abrir la Fase 0. Pendiente aún: GitHub Projects (§7.8).
