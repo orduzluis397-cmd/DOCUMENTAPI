@@ -95,6 +95,25 @@
 
 ---
 
+### CR-005 · Despliegue de demo técnica a costo cero (Supabase + Clerk)
+
+- **Fecha:** 2026-11-04
+- **Pedido del usuario:** "publica la app, no tengo forma de acceder a los documentos" · "esta es una demo tecnica, cuales son los sitios que tienen 0 costos" · "analiza la viabilidad de usar supabase como base de datos" · "utiliza clerk"
+- **Interpretación:** publicar la app para que terceros suban documentos, solo en planes gratuitos: Vercel Hobby (web), Render free (API + worker en un contenedor), Supabase free (Postgres **y** almacenamiento S3 en lugar de R2/S3), Upstash Redis free, Clerk free (login y organizaciones). Incluye autorización de datos visible antes de subir, aviso de demo y borrado de documentos.
+- **Tipo:** mayor
+- **Fases y agentes afectados:** Fase 0 (#24) · extraccion-app
+- **Archivos o módulos:** `app/auth.py`, `app/storage.py`, `apps/web` (Clerk), `infra/deploy/`, Dockerfile, `.github/workflows/deploy.yml`, keep-alive de Supabase, `.env.example`
+- **Evals afectadas / nuevas:** ninguna; pruebas nuevas de auth (JWT) y de que `anon`/`authenticated` de Supabase no ven tablas
+- **Costo, calendario y riesgo:** US$0 (planes gratis, sin tarjeta); ~2–3 días. Riesgos: pausa de Supabase a los 7 días (keep-alive), Render se duerme a los 15 min, API pública de Supabase (se desactiva y se revocan permisos), datos fuera de Colombia (Ley 1581: autorización previa).
+- **Reglas duras involucradas:** 10 (despliegue requiere aprobación), privacidad de documentos
+- **Plan:** 1. extraccion-app prepara el código en un PR sin publicar. 2. Revisión del orquestador. 3. El usuario crea las cuentas y pone claves en `.env`/secretos. 4. Aprobación explícita del primer despliegue.
+- **Aprobación del usuario:** proveedores aprobados el 2026-11-04 ("utiliza clerk"); primer despliegue pendiente
+- **Estado:** en curso
+- **Verificación:** <pendiente>
+- **Commits / PR:** <pendiente>
+
+---
+
 ## Plantilla
 
 ### CR-000 · <título corto>
