@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import secrets
 from functools import lru_cache
 from pathlib import Path
 from string import Template
@@ -31,6 +33,20 @@ class Prompt(BaseModel):
         if self.reintento is None:
             raise ValueError(f"El prompt {self.id} no define `reintento`")
         return Template(self.reintento).substitute(errores=errores)
+
+
+_DOC_TAG = re.compile(r"<(\s*/?\s*)(documento)", re.IGNORECASE)
+
+
+def wrap_document(text: str) -> tuple[str, str]:
+    """Etiqueta con nonce aleatorio (por llamada) y el texto con esa etiqueta neutralizada.
+
+    Un documento que traiga `</documento>` (o adivine el formato) no puede cerrar el bloque de
+    datos: toda apertura `<documento…`/`</documento…` del texto pasa a `&lt;documento…`.
+    """
+    tag = f"documento-{secrets.token_hex(8)}"
+    safe = _DOC_TAG.sub(lambda m: f"&lt;{m.group(1)}{m.group(2)}", text)
+    return tag, safe
 
 
 @lru_cache

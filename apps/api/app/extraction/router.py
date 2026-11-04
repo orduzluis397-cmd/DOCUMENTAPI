@@ -21,8 +21,8 @@ from pydantic_core import to_jsonable_python
 
 from app.extraction import llm_extract
 from app.extraction.fields import failed_fields, to_field_values
-from app.extraction.ocr import OcrEngine, ocr_image, ocr_pdf
-from app.extraction.pdf_text import extract_text
+from app.extraction.ocr import OcrEngine, OcrLimits, ocr_image
+from app.extraction.pdf_text import read_pdf
 from app.extraction.types import ExtractionError, ExtractionOutcome, Method
 from app.extraction.xml_ubl import is_zip, parse_ubl
 from app.files import sniff
@@ -46,6 +46,7 @@ class RouterConfig:
     pdf_min_chars_per_page: int = 25
     ocr_dpi: int = 300
     ocr_max_pages: int = 10
+    ocr_max_pixels: int = 25_000_000
 
 
 def _validaciones_json(vals: list[ResultadoValidacion]) -> list[dict[str, Any]]:
@@ -67,31 +68,54 @@ def extract_document(
     with tracer.span("documento", trace_id, content_type=kind):
         if kind in ("application/zip", "application/xml"):
             return _from_xml(data, trace_id, hoy)
+        limits = OcrLimits(
+            max_pages=config.ocr_max_pages, max_pixels=config.ocr_max_pixels, dpi=config.ocr_dpi
+        )
+        omitted: list[int] = []
+        extra: dict[str, Any] = {}
         if kind == "application/pdf":
             method: Method = "pdf_text"
             try:
                 with tracer.span("pdf_texto", trace_id):
-                    pdf = extract_text(data)
-                if pdf.has_text_layer(config.pdf_min_chars_per_page):
-                    pages = pdf.pages
-                else:
-                    method = "ocr"
-                    with tracer.span("ocr", trace_id, origen="pdf"):
-                        pages = ocr_pdf(data, ocr_factory(), config.ocr_dpi, config.ocr_max_pages)
+                    pdf = read_pdf(
+                        data,
+                        ocr_factory,
+                        min_chars_per_page=config.pdf_min_chars_per_page,
+                        limits=limits,
+                    )
             except ExtractionError as exc:
                 return ExtractionOutcome(status="failed", method=method, error=str(exc))
+            pages, omitted = pdf.pages, pdf.omitted
+            if pdf.used_ocr:
+                method = "ocr"
+                extra["paginas_ocr"] = pdf.ocr_pages
+            if pdf.ocr_error and not any(p.strip() for p in pages):
+                # Todo el PDF es escaneado y no hay OCR: no hay nada que leer.
+                return ExtractionOutcome(status="failed", method="ocr", error=pdf.ocr_error)
+            if pdf.ocr_error:
+                extra["ocr_no_disponible"] = pdf.ocr_error
         elif kind in ("image/png", "image/jpeg", "image/tiff"):
             method = "ocr"
             try:
                 with tracer.span("ocr", trace_id, origen="imagen"):
-                    pages = ocr_image(data, ocr_factory())
+                    ocr = ocr_image(data, ocr_factory(), limits)
             except ExtractionError as exc:
                 return ExtractionOutcome(status="failed", method=method, error=str(exc))
+            pages, omitted = ocr.pages, ocr.omitted
         else:
             return ExtractionOutcome(
                 status="failed", method="pdf_text", error="Tipo de archivo no soportado"
             )
-        return _from_text(pages, method, config, llm_factory, hoy)
+        outcome = _from_text(pages, method, config, llm_factory, hoy)
+        outcome.raw_output.update(extra)
+        if omitted:
+            # Páginas sin leer: el documento no puede salir como extraído.
+            outcome.raw_output["paginas_omitidas"] = omitted
+            if outcome.status == "extracted":
+                outcome.status = "needs_review"
+            note = f"Páginas sin leer (límite de OCR u OCR no disponible): {omitted}."
+            outcome.error = f"{outcome.error} {note}" if outcome.error else note
+        return outcome
 
 
 # ------------------------------------------------------------------------------ XML

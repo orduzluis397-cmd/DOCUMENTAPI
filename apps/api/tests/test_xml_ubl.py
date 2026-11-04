@@ -1,10 +1,16 @@
 """Parser determinista UBL 2.1 (sin LLM), campo por campo, con fixtures sintéticos."""
 
+import io
+import time
+import zipfile
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
+from lxml import etree
 
+from app.extraction import xml_ubl
 from app.extraction.types import ExtractionError
 from app.extraction.xml_ubl import parse_ubl
 from app.schemas.validators import validar_factura
@@ -52,6 +58,8 @@ def _check_invoice_fields(data: bytes) -> None:
     assert l1.valor_unitario == Decimal("50000")
     assert l1.valor_total == Decimal("100000.00")
     assert l1.tarifa_iva == Decimal("19")
+    # Sin ceros de relleno (UBL trae "19.00" y "2.000000"): igual que GUIA.md y la ruta LLM.
+    assert (str(l1.tarifa_iva), str(l1.cantidad), str(l1.valor_unitario)) == ("19", "2", "50000")
     assert l1.iva == Decimal("19000.00")
     # Línea excluida: sin TaxTotal → tarifa e IVA nulos.
     assert l2.descripcion == "Servicio de instalación"
@@ -130,12 +138,87 @@ def test_zip_sin_xml() -> None:
         parse_ubl(invoice_zip(None))
 
 
-def test_xxe_no_resuelve_entidades_externas() -> None:
-    evil = b"""<?xml version="1.0"?>
-<!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/passwd">]>
-<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
-  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
-  <cbc:ID>&x;</cbc:ID>
-</Invoice>"""
-    ubl = parse_ubl(evil)
-    assert ubl.factura.numero is None or "root" not in ubl.factura.numero
+_INVOICE_OPEN = (
+    b'<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" '
+    b'xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">'
+)
+
+
+def test_xxe_no_resuelve_entidades_externas(tmp_path: Path) -> None:
+    # Archivo local con un token conocido: si el parser resolviera la entidad, aparecería.
+    secret = tmp_path / "secreto.txt"
+    marker = "MARCA-XXE-1234"
+    secret.write_text(marker, encoding="utf-8")
+    evil = (
+        b'<?xml version="1.0"?>\n<!DOCTYPE r [<!ENTITY x SYSTEM "'
+        + secret.as_uri().encode()
+        + b'">]>\n'
+        + _INVOICE_OPEN
+        + b"<cbc:ID>&x;</cbc:ID></Invoice>"
+    )
+    # 1) El parser de bajo nivel no resuelve la entidad: el número queda vacío.
+    root = etree.fromstring(evil, parser=xml_ubl._parser())
+    numero = root.find("cbc:ID", xml_ubl.NS)
+    assert numero is not None
+    assert numero.text is None
+    assert marker not in etree.tostring(root).decode()
+    # 2) Y el documento se rechaza por traer DOCTYPE.
+    with pytest.raises(ExtractionError, match="DOCTYPE") as exc:
+        parse_ubl(evil)
+    assert marker not in str(exc.value)
+
+
+def test_billion_laughs_se_rechaza_rapido() -> None:
+    entities = b'<!ENTITY a0 "jajaja">' + b"".join(
+        b'<!ENTITY a%d "&a%d;&a%d;&a%d;&a%d;&a%d;&a%d;&a%d;&a%d;&a%d;&a%d;">' % (i, *([i - 1] * 10))
+        for i in range(1, 10)
+    )
+    evil = b"<?xml version='1.0'?><!DOCTYPE r [" + entities + b"]>" + _INVOICE_OPEN
+    evil += b"<cbc:ID>&a9;</cbc:ID></Invoice>"
+    start = time.perf_counter()
+    with pytest.raises(ExtractionError):
+        parse_ubl(evil)
+    assert time.perf_counter() - start < 2
+
+
+def test_doctype_simple_se_rechaza() -> None:
+    xml = invoice_xml().replace(
+        '<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
+        '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE Invoice>',
+    )
+    with pytest.raises(ExtractionError, match="DOCTYPE"):
+        parse_ubl(xml.encode("utf-8"))
+    # También dentro del CDATA del AttachedDocument.
+    with pytest.raises(ExtractionError):
+        parse_ubl(attached_document(xml).encode("utf-8"))
+
+
+@pytest.mark.parametrize("total", ["1.4060E+5", "1e400", "9" * 40 + ".00", "NaN", "Infinity"])
+def test_montos_extremos_o_cientificos_quedan_invalidos(total: str) -> None:
+    ubl = parse_ubl(invoice_xml(total=total).encode("utf-8"))
+    assert ubl.factura.total is None
+    assert ubl.invalid == {"total": total}
+
+
+def test_zip_cifrado_o_con_compresion_no_soportada() -> None:
+    original = invoice_zip(attached_document(invoice_xml()), with_pdf=False)
+    central = original.find(b"PK\x01\x02")
+    # Bit 0 de los flags (cabecera local: offset 6; central: offset 8) = cifrado.
+    data = bytearray(original)
+    data[6] |= 0x1
+    data[central + 8] |= 0x1
+    with pytest.raises(ExtractionError, match="cifrado"):
+        parse_ubl(bytes(data))
+    # Método de compresión 99 (local: offset 8; central: offset 10) = no soportado.
+    data = bytearray(original)
+    data[8:10] = (99).to_bytes(2, "little")
+    data[central + 10 : central + 12] = (99).to_bytes(2, "little")
+    with pytest.raises(ExtractionError, match="no se puede leer"):
+        parse_ubl(bytes(data))
+    assert zipfile.is_zipfile(io.BytesIO(bytes(data)))
+
+
+def test_zip_tope_total_descomprimido(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(xml_ubl, "_ZIP_MAX_TOTAL_BYTES", 100)
+    with pytest.raises(ExtractionError, match="descomprimidos"):
+        parse_ubl(invoice_zip(attached_document(invoice_xml())))

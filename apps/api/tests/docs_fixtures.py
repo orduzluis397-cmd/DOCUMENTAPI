@@ -184,27 +184,46 @@ def _pdf_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
+_SCANNED = b"0.9 g 50 50 500 700 re f"  # solo un rectángulo gris: nada que leer sin OCR
+
+
+def _text_content(lines: list[str]) -> bytes:
+    shows = " ".join(f"({_pdf_escape(line)}) '" for line in lines)
+    return (f"BT /F1 11 Tf 14 TL 50 760 Td {shows} ET" if lines else "").encode("cp1252")
+
+
 def text_pdf(lines: list[str]) -> bytes:
     """PDF de una página con capa de texto real (Helvetica, WinAnsiEncoding)."""
-    shows = " ".join(f"({_pdf_escape(line)}) '" for line in lines)
-    content = f"BT /F1 11 Tf 14 TL 50 760 Td {shows} ET" if lines else ""
-    return _pdf(content.encode("cp1252"))
+    return _pdf([_text_content(lines)])
 
 
 def blank_pdf() -> bytes:
     """PDF sin capa de texto (como un escaneo: no hay nada que leer sin OCR)."""
-    return _pdf(b"0.9 g 50 50 500 700 re f")
+    return _pdf([_SCANNED])
 
 
-def _pdf(content: bytes) -> bytes:
+def mixed_pdf(pages: list[list[str] | None]) -> bytes:
+    """Varias páginas: lista de líneas = página con texto; `None` = página "escaneada"."""
+    return _pdf([_SCANNED if p is None else _text_content(p) for p in pages])
+
+
+def _pdf(contents: list[bytes]) -> bytes:
+    n = len(contents)
+    font_id = 3 + 2 * n
+    kids = " ".join(f"{3 + 2 * i} 0 R" for i in range(n)).encode()
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-        b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        b"<< /Type /Pages /Kids [" + kids + b"] /Count %d >>" % n,
     ]
+    for i, content in enumerate(contents):
+        objects.append(
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Resources << /Font << /F1 %d 0 R >> >> /Contents %d 0 R >>" % (font_id, 4 + 2 * i)
+        )
+        objects.append(b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream")
+    objects.append(
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+    )
     out = bytearray(b"%PDF-1.7\n")
     offsets = []
     for i, body in enumerate(objects, 1):
@@ -231,6 +250,13 @@ def png_with_text(text: str = "CUENTA DE COBRO") -> bytes:
     draw.text((40, 70), text, fill="black", font=font)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def multi_frame_tiff(frames: int) -> bytes:
+    images = [Image.new("RGB", (200, 100), "white") for _ in range(frames)]
+    buf = io.BytesIO()
+    images[0].save(buf, format="TIFF", save_all=True, append_images=images[1:])
     return buf.getvalue()
 
 

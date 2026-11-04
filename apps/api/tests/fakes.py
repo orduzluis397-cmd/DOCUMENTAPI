@@ -101,7 +101,9 @@ def scripted_llm(transport: ScriptedTransport) -> InstructorLLMClient:
         http_client=httpx2.Client(transport=httpx2.MockTransport(transport)),
         max_retries=0,
     )
-    return InstructorLLMClient(FAKE_PROVIDER, instructor.from_openai(oa))
+    return InstructorLLMClient(
+        FAKE_PROVIDER, instructor.from_openai(oa), max_output_tokens=OUTPUT_TOKENS
+    )
 
 
 class FakeOcr:

@@ -1,20 +1,24 @@
-"""Enrutamiento por tipo de archivo (sin BD ni red): XML/ZIP → parser; PDF → texto u OCR;
-imagen → OCR. Las rutas con LLM se cortan con un LLM "no configurado" para ver solo la ruta."""
+"""Enrutamiento por tipo de archivo (sin BD ni red): XML/ZIP → parser; PDF → texto u OCR por
+página; imagen → OCR. Las rutas con LLM se cortan con un LLM "no configurado" para ver la ruta."""
 
 from __future__ import annotations
 
 import pytest
+from PIL import Image
 
 from app.config import Settings
 from app.extraction.ocr import (
+    MAX_IMAGE_PIXELS,
     OcrEngine,
+    OcrLimits,
     OcrUnavailableError,
     TesseractOcr,
+    fit_pixels,
     ocr_image,
-    ocr_pdf,
+    render_scale,
     tesseract_path,
 )
-from app.extraction.pdf_text import extract_text
+from app.extraction.pdf_text import extract_text, read_pdf, visible_chars
 from app.extraction.router import RouterConfig, extract_document
 from app.extraction.types import ExtractionOutcome
 from app.llm.base import LLMNotConfiguredError
@@ -27,6 +31,8 @@ from tests.docs_fixtures import (
     image_pdf,
     invoice_xml,
     invoice_zip,
+    mixed_pdf,
+    multi_frame_tiff,
     png_with_text,
     text_pdf,
 )
@@ -43,10 +49,10 @@ def _no_ocr() -> OcrEngine:
     raise OcrUnavailableError("OCR no disponible: Tesseract no está instalado (prueba)")
 
 
-def _route(data: bytes, ocr: object = _no_ocr) -> ExtractionOutcome:
+def _route(data: bytes, ocr: object = _no_ocr, config: RouterConfig = CONFIG) -> ExtractionOutcome:
     return extract_document(
         data,
-        config=CONFIG,
+        config=config,
         llm_factory=_no_llm,
         ocr_factory=ocr,  # type: ignore[arg-type]
         trace_id="t-1",
@@ -56,10 +62,10 @@ def _route(data: bytes, ocr: object = _no_ocr) -> ExtractionOutcome:
 
 def test_pdf_text_layer_detected() -> None:
     pdf = extract_text(text_pdf(CUENTA_COBRO_LINES))
-    assert pdf.has_text_layer(25)
     assert "CUENTA DE COBRO No. 015" in pdf.pages[0]
     assert "Medellín" in pdf.pages[0]
-    assert not extract_text(blank_pdf()).has_text_layer(25)
+    assert visible_chars(pdf.pages[0]) >= 25
+    assert extract_text(blank_pdf()).visible_chars() == 0
 
 
 @pytest.mark.parametrize(
@@ -132,11 +138,76 @@ def test_scanned_pdf_routes_to_ocr() -> None:
     assert "LLM no configurado" in (out.error or "")
 
 
+def test_pdf_layer_is_decided_page_by_page() -> None:
+    # Páginas 1 y 3 con texto; la 2 escaneada: solo la 2 va a OCR.
+    ocr = fake_ocr_factory("PÁGINA ESCANEADA LEÍDA POR OCR")
+    data = mixed_pdf([CUENTA_COBRO_LINES, None, CUENTA_COBRO_LINES])
+    read = read_pdf(data, ocr, min_chars_per_page=25, limits=OcrLimits())
+    assert read.ocr_pages == [2]
+    assert read.omitted == []
+    assert ocr().calls == 1
+    assert "CUENTA DE COBRO" in read.pages[0]
+    assert read.pages[1] == "PÁGINA ESCANEADA LEÍDA POR OCR"
+    out = _route(data, ocr)
+    assert out.method == "ocr"
+    assert out.raw_output["paginas_ocr"] == [2]
+
+
+def test_pages_over_ocr_limit_are_reported_and_need_review() -> None:
+    ocr = fake_ocr_factory("texto OCR")
+    config = RouterConfig(model_extraction="modelo-falso", ocr_max_pages=2)
+    out = _route(mixed_pdf([None, None, None, CUENTA_COBRO_LINES]), ocr, config)
+    assert ocr().calls == 2
+    assert out.raw_output["paginas_omitidas"] == [3]
+    assert "Páginas sin leer" in (out.error or "")
+
+
+def test_pages_omitted_force_needs_review_even_if_extracted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.extraction import router
+
+    def fake_from_text(*_args: object, **_kw: object) -> ExtractionOutcome:
+        return ExtractionOutcome(status="extracted", method="ocr")
+
+    monkeypatch.setattr(router, "_from_text", fake_from_text)
+    config = RouterConfig(model_extraction="modelo-falso", ocr_max_pages=1)
+    out = _route(mixed_pdf([None, None]), fake_ocr_factory("x"), config)
+    assert out.status == "needs_review"
+    assert out.raw_output["paginas_omitidas"] == [2]
+
+
+def test_mixed_pdf_without_ocr_keeps_text_pages() -> None:
+    out = _route(mixed_pdf([CUENTA_COBRO_LINES, None]))
+    assert out.method == "pdf_text"
+    assert out.raw_output["paginas_omitidas"] == [2]
+    assert "OCR no disponible" in out.raw_output["ocr_no_disponible"]
+
+
 def test_image_routes_to_ocr() -> None:
     ocr = fake_ocr_factory("CUENTA DE COBRO")
     out = _route(png_with_text(), ocr)
     assert out.method == "ocr"
     assert ocr().calls == 1
+
+
+def test_tiff_frames_respect_page_limit() -> None:
+    ocr = fake_ocr_factory("cuadro")
+    result = ocr_image(multi_frame_tiff(4), ocr(), OcrLimits(max_pages=2))
+    assert len(result.pages) == 2
+    assert result.omitted == [3, 4]
+    assert ocr().calls == 2
+
+
+def test_pixel_caps() -> None:
+    assert Image.MAX_IMAGE_PIXELS == MAX_IMAGE_PIXELS
+    big = Image.new("RGB", (4000, 4000))
+    small = fit_pixels(big, 4_000_000)
+    assert small.size[0] * small.size[1] <= 4_000_000
+    # Página carta a 300 dpi ≈ 8.4 MP; con tope de 2 MP la escala baja.
+    scale = render_scale(612, 792, 300, 2_000_000)
+    assert 612 * scale * 792 * scale <= 2_000_000 * 1.0001
+    assert render_scale(612, 792, 300, 25_000_000) == pytest.approx(300 / 72)
 
 
 def test_ocr_unavailable_is_clear_failure() -> None:
@@ -168,7 +239,7 @@ def test_tesseract_missing_raises_clear_error(monkeypatch: pytest.MonkeyPatch) -
 
 def _real_ocr() -> TesseractOcr:
     s = Settings()
-    return TesseractOcr(s.tesseract_cmd, s.ocr_lang, s.tessdata_prefix)
+    return TesseractOcr(s.tesseract_cmd, s.ocr_lang, s.tessdata_prefix, s.ocr_timeout_s)
 
 
 def _ocr_unavailable_reason() -> str | None:
@@ -196,8 +267,8 @@ def test_real_tesseract_reads_image() -> None:
 
 @requires_tesseract
 def test_real_tesseract_spanish_text() -> None:
-    pages = ocr_image(png_with_text("CUENTA DE COBRO 15 MEDELLÍN"), _real_ocr())
-    text = pages[0].upper()
+    result = ocr_image(png_with_text("CUENTA DE COBRO 15 MEDELLÍN"), _real_ocr())
+    text = result.pages[0].upper()
     assert "CUENTA DE COBRO" in text
     assert "MEDELLÍN" in text
 
@@ -205,5 +276,12 @@ def test_real_tesseract_spanish_text() -> None:
 @requires_tesseract
 def test_real_tesseract_scanned_pdf() -> None:
     # PDF "escaneado": la página es una imagen sin capa de texto → render con pypdfium2 + OCR.
-    pages = ocr_pdf(image_pdf(png_with_text("EXTRACTO BANCARIO")), _real_ocr(), dpi=150)
-    assert "EXTRACTO" in pages[0].upper()
+    engine = _real_ocr()
+    read = read_pdf(
+        image_pdf(png_with_text("EXTRACTO BANCARIO")),
+        lambda: engine,
+        min_chars_per_page=25,
+        limits=OcrLimits(dpi=150),
+    )
+    assert read.ocr_pages == [1]
+    assert "EXTRACTO" in read.pages[0].upper()

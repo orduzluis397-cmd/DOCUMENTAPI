@@ -45,3 +45,18 @@ Opción 2 (`apps/api/app/extraction/router.py`):
 - Instructor no hace reintentos internos: un cambio de versión que altere `max_retries=0` lo
   detectan las pruebas con el cliente falso.
 - Pendiente: medir en **val** (F0-15) y revisar esta decisión con las cifras de la línea base.
+
+## Adenda 2026-11-04 · Revisión de evals-calidad (PR #30)
+
+- **Dudas que no se borran**: un campo que falló en cualquier intento queda `is_doubtful` si su
+  valor final es null o distinto del que falló (y con él la regla completa). El reintento solo
+  nombra la regla y los campos; nunca el valor calculado (GUIA.md §2: copiar tal cual).
+- **Costo**: el tope por documento parte de la suma de `llm_calls` del documento; antes de cada
+  llamada se rechaza si el peor costo estimado (entrada ≈ caracteres/3 + todo `max_output`)
+  pasaría el tope o el presupuesto global diario/mensual (`llm_spend_usd_since`, función
+  SECURITY DEFINER que solo devuelve el agregado). Sin presupuesto no se llama.
+- **Reclamo atómico** con lease (`documents.processing_started_at`) contra reentregas de Celery.
+- **Proveedores externos apagados** por defecto (`LLM_EXTERNAL_ENABLED=false`); vLLM local sí.
+- **Prompt**: el documento va entre etiquetas con nonce aleatorio por llamada; el texto no puede
+  cerrarlas. **XML**: se rechaza cualquier DOCTYPE. **OCR**: capa de texto por página, límites de
+  páginas, píxeles y tiempo; las páginas omitidas mandan el documento a revisión.

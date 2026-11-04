@@ -69,8 +69,11 @@ class PriceTable(BaseModel):
             "(app/llm/prices.yaml o LLM_PRICES_PATH): no se llama al modelo."
         )
 
-    def cost_usd(self, provider: str, model: str, usage: LLMUsage) -> Decimal:
-        p = self.price(provider, model)
+    def cost_usd(
+        self, provider: str, model: str, usage: LLMUsage, dia: date | None = None
+    ) -> Decimal:
+        """Costo con el precio vigente en `dia` (la fecha de la llamada)."""
+        p = self.price(provider, model, dia)
         cost = (
             Decimal(usage.input_tokens) * p.usd_por_millon_entrada
             + Decimal(usage.output_tokens) * p.usd_por_millon_salida

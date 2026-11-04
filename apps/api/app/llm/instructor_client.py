@@ -31,10 +31,12 @@ class InstructorLLMClient:
         client: instructor.Instructor,
         *,
         max_output_tokens: int | None = None,
+        max_tokens_param: str = "max_tokens",
     ) -> None:
         self._provider = provider
         self._client = client
         self._max_output_tokens = max_output_tokens
+        self._max_tokens_param = max_tokens_param
 
     @property
     def provider(self) -> str:
@@ -45,7 +47,7 @@ class InstructorLLMClient:
     ) -> StructuredResult[T]:
         kwargs: dict[str, Any] = {}
         if self._max_output_tokens is not None:
-            kwargs["max_tokens"] = self._max_output_tokens
+            kwargs[self._max_tokens_param] = self._max_output_tokens
         try:
             value, completion = self._client.chat.completions.create_with_completion(
                 model=model,

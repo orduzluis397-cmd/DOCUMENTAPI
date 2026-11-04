@@ -2,7 +2,8 @@
 
 Pasos, todos bajo RLS con la organización del documento:
 
-1. Transacción corta: `queued` → `processing` (con bloqueo de fila; idempotente).
+1. Transacción corta: reclamo atómico `queued` → `processing` con lease
+   (`processing_started_at`); otra entrega solo lo retoma si el lease venció.
 2. Lee el archivo del almacenamiento y corre el enrutador. Las llamadas LLM escriben `llm_calls`
    en sus propias transacciones (quedan aunque luego algo falle).
 3. Transacción final: `extractions` + `extracted_fields`, estado `extracted` / `needs_review` /
@@ -15,10 +16,10 @@ import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings, get_settings
@@ -50,7 +51,9 @@ class WorkerDeps:
     factory: sessionmaker[Session] | None = None
     llm_client: Callable[[Settings], LLMClient] = build_llm_client
     ocr: Callable[[Settings], OcrEngine] = field(
-        default=lambda s: TesseractOcr(s.tesseract_cmd, s.ocr_lang, s.tessdata_prefix)
+        default=lambda s: TesseractOcr(
+            s.tesseract_cmd, s.ocr_lang, s.tessdata_prefix, s.ocr_timeout_s
+        )
     )
     prices: Callable[[Settings], PriceTable] = field(
         default=lambda s: PriceTable.load(s.llm_prices_path)
@@ -62,22 +65,51 @@ def get_worker_deps() -> WorkerDeps:
     return WorkerDeps(settings=get_settings(), storage=get_storage())
 
 
-def mark_processing(
+@dataclass(frozen=True)
+class Claim:
+    status: str
+    storage_key: str
+    claimed: bool  # True si este worker se quedó con el documento
+
+
+def claim_document(
     document_id: uuid.UUID,
     organization_id: uuid.UUID,
     factory: sessionmaker[Session] | None = None,
-) -> tuple[str, str] | None:
-    """`queued` → `processing`. Devuelve `(estado, storage_key)` o None si no existe en la org."""
+    lease_s: int = 900,
+) -> Claim | None:
+    """Reclama el documento con un solo `UPDATE … RETURNING` (atómico entre workers).
+
+    Se reclama si está `queued`, o `processing` con el lease vencido (el worker anterior se
+    cayó y Celery reentregó la tarea). Devuelve None si no existe en la organización.
+    """
     with tenant_session(organization_id, factory) as session:
-        doc = session.scalar(select(Document).where(Document.id == document_id).with_for_update())
-        if doc is None:
-            logger.warning("Documento %s no encontrado en la organización", document_id)
-            return None
-        if doc.status == "queued":
-            doc.status = "processing"
-        result = (doc.status, doc.storage_key)
+        expired = or_(
+            Document.processing_started_at.is_(None),
+            Document.processing_started_at < func.now() - timedelta(seconds=lease_s),
+        )
+        row = session.execute(
+            update(Document)
+            .where(
+                Document.id == document_id,
+                or_(
+                    Document.status == "queued",
+                    and_(Document.status == "processing", expired),
+                ),
+            )
+            .values(status="processing", processing_started_at=func.now())
+            .returning(Document.storage_key)
+            .execution_options(synchronize_session=False)
+        ).first()
+        if row is not None:
+            session.commit()
+            return Claim("processing", row[0], claimed=True)
+        doc = session.scalar(select(Document).where(Document.id == document_id))
         session.commit()
-    return result
+    if doc is None:
+        logger.warning("Documento %s no encontrado en la organización", document_id)
+        return None
+    return Claim(doc.status, doc.storage_key, claimed=False)
 
 
 def _llm_factory(
@@ -86,9 +118,20 @@ def _llm_factory(
     def build() -> TrackedLLM:
         s = deps.settings
         cap = s.llm_max_cost_per_doc_usd
-        if cap is None:
+        daily = s.llm_daily_budget_usd
+        monthly = s.llm_monthly_budget_usd
+        if cap is None or daily is None or monthly is None:
+            missing = [
+                name
+                for name, value in (
+                    ("LLM_MAX_COST_PER_DOC_USD", cap),
+                    ("LLM_DAILY_BUDGET_USD", daily),
+                    ("LLM_MONTHLY_BUDGET_USD", monthly),
+                )
+                if value is None
+            ]
             raise LLMNotConfiguredError(
-                "Falta LLM_MAX_COST_PER_DOC_USD: sin tope por documento no se llama al LLM."
+                f"Falta {', '.join(missing)}: sin tope y presupuesto no se llama al LLM."
             )
         return TrackedLLM(
             deps.llm_client(s),
@@ -97,6 +140,9 @@ def _llm_factory(
             document_id=document_id,
             trace_id=trace_id,
             max_cost_usd=Decimal(cap),
+            daily_budget_usd=Decimal(daily),
+            monthly_budget_usd=Decimal(monthly),
+            max_output_tokens=s.llm_max_output_tokens,
             factory=deps.factory,
         )
 
@@ -143,6 +189,7 @@ def save_outcome(
         doc.status = outcome.status
         doc.doc_type = outcome.doc_type
         doc.error = outcome.error
+        doc.processing_started_at = None
         audit.record(
             session,
             organization_id=organization_id,
@@ -181,6 +228,7 @@ def _mark_failed(
         old = doc.status
         doc.status = "failed"
         doc.error = error[:4000]
+        doc.processing_started_at = None
         audit.record(
             session,
             organization_id=organization_id,
@@ -198,16 +246,16 @@ def _mark_failed(
 
 def process(document_id: uuid.UUID, organization_id: uuid.UUID, deps: WorkerDeps) -> str | None:
     """Procesa un documento de punta a punta. Devuelve el estado final o None si no existe."""
-    marked = mark_processing(document_id, organization_id, deps.factory)
-    if marked is None:
+    s = deps.settings
+    claim = claim_document(document_id, organization_id, deps.factory, s.processing_lease_s)
+    if claim is None:
         return None
-    status, storage_key = marked
-    if status != "processing":
-        logger.info("Documento %s ya en %s; no se reprocesa", document_id, status)
-        return status
+    if not claim.claimed:
+        # Ya terminado, o lo procesa otro worker con el lease vigente.
+        logger.info("Documento %s en %s; no se procesa aquí", document_id, claim.status)
+        return claim.status
 
     trace_id = uuid.uuid4().hex
-    s = deps.settings
     config = RouterConfig(
         model_extraction=s.llm_model_extraction,
         model_classification=s.llm_model_classification,
@@ -216,9 +264,10 @@ def process(document_id: uuid.UUID, organization_id: uuid.UUID, deps: WorkerDeps
         pdf_min_chars_per_page=s.pdf_min_chars_per_page,
         ocr_dpi=s.ocr_dpi,
         ocr_max_pages=s.ocr_max_pages,
+        ocr_max_pixels=s.ocr_max_pixels,
     )
     try:
-        data = deps.storage.get(storage_key)
+        data = deps.storage.get(claim.storage_key)
         outcome = extract_document(
             data,
             config=config,

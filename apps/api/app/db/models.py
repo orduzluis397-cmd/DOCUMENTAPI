@@ -121,6 +121,8 @@ class Document(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
     doc_type: Mapped[str | None] = mapped_column(String(50))
     error: Mapped[str | None] = mapped_column(Text)
+    # Inicio del procesamiento actual (lease del worker; ver app/workers/tasks.py).
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

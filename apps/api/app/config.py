@@ -69,6 +69,19 @@ class Settings(BaseSettings):
     llm_prices_path: Path | None = None
     # Máximo de caracteres de texto que se envían al LLM (acota el costo).
     llm_max_input_chars: int = Field(default=40_000, gt=0)
+    # Presupuesto global (todas las organizaciones) contra la suma de llm_calls. Si falta alguno,
+    # NO se llama al LLM (falla cerrado). Día y mes en hora de Colombia (UTC-5).
+    llm_daily_budget_usd: Decimal | None = Field(default=None, gt=0)
+    llm_monthly_budget_usd: Decimal | None = Field(default=None, gt=0)
+    # Con false (por defecto) no sale ninguna llamada a un proveedor externo (anthropic,
+    # openai); solo se admite vLLM en la máquina o la red local. La política final la decide
+    # el usuario (regla dura 1: ningún documento sin anonimizar va a una API externa).
+    llm_external_enabled: bool = False
+
+    # ---- Worker.
+    # Un documento en `processing` sin terminar tras este tiempo se puede reclamar de nuevo
+    # (reentrega de Celery tras una caída). Debe superar el peor tiempo de procesamiento.
+    processing_lease_s: int = Field(default=900, ge=60)
 
     # ---- OCR / PDF.
     tesseract_cmd: str | None = None
@@ -76,8 +89,12 @@ class Settings(BaseSettings):
     tessdata_prefix: str | None = None
     ocr_lang: str = "spa"
     ocr_dpi: int = Field(default=300, ge=72, le=600)
+    # Páginas (o cuadros de un TIFF) máximas con OCR por documento; el resto se omite.
     ocr_max_pages: int = Field(default=10, gt=0)
-    # Un PDF tiene capa de texto si trae al menos estos caracteres visibles por página.
+    # Tope de píxeles por página antes del OCR (se baja la escala si hace falta).
+    ocr_max_pixels: int = Field(default=25_000_000, ge=1_000_000)
+    ocr_timeout_s: int = Field(default=60, gt=0)
+    # Una página de PDF tiene capa de texto si trae al menos estos caracteres visibles.
     pdf_min_chars_per_page: int = Field(default=25, ge=1)
 
     @field_validator(
@@ -88,6 +105,8 @@ class Settings(BaseSettings):
         "vllm_base_url",
         "vllm_api_key",
         "llm_max_cost_per_doc_usd",
+        "llm_daily_budget_usd",
+        "llm_monthly_budget_usd",
         "llm_prices_path",
         "tesseract_cmd",
         "tessdata_prefix",

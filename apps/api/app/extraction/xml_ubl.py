@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+import zlib
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -40,6 +41,7 @@ _ROOTS: dict[str, tuple[UblKind, str, str, str]] = {
 _IVA = "01"
 _ZIP_MAX_ENTRIES = 50
 _ZIP_MAX_XML_BYTES = 20 * 1024 * 1024
+_ZIP_MAX_TOTAL_BYTES = 40 * 1024 * 1024
 _CENT = Decimal("0.01")
 _MICRO = Decimal("0.000001")
 
@@ -90,9 +92,13 @@ def _parse(xml: bytes | str) -> etree._Element:
     if isinstance(xml, str):
         xml = xml.encode("utf-8")
     try:
-        return etree.fromstring(xml.removeprefix(b"\xef\xbb\xbf").lstrip(), parser=_parser())
+        root = etree.fromstring(xml.removeprefix(b"\xef\xbb\xbf").lstrip(), parser=_parser())
     except etree.XMLSyntaxError as exc:
         raise ExtractionError(f"XML mal formado: {exc}") from exc
+    # Una factura UBL no lleva DOCTYPE: cualquiera se rechaza (XXE, billion laughs).
+    if getattr(root.getroottree().docinfo, "doctype", ""):
+        raise ExtractionError("XML con DOCTYPE: no se admite en factura electrónica")
+    return root
 
 
 def _xml_from_zip(data: bytes) -> bytes:
@@ -104,14 +110,26 @@ def _xml_from_zip(data: bytes) -> bytes:
         entries = [i for i in zf.infolist() if not i.is_dir()]
         if len(entries) > _ZIP_MAX_ENTRIES:
             raise ExtractionError(f"ZIP con demasiados archivos ({len(entries)})")
+        total = 0
         for info in entries:
             if not info.filename.lower().endswith(".xml"):
                 continue
-            with zf.open(info) as fh:
-                # Lectura acotada: no se confía en el tamaño declarado (zip bomb).
-                content = fh.read(_ZIP_MAX_XML_BYTES + 1)
+            if info.flag_bits & 0x1:
+                raise ExtractionError(f"{info.filename}: ZIP cifrado")
+            try:
+                with zf.open(info) as fh:
+                    # Lectura acotada: no se confía en el tamaño declarado (zip bomb).
+                    content = fh.read(_ZIP_MAX_XML_BYTES + 1)
+            except (RuntimeError, NotImplementedError, zipfile.BadZipFile, EOFError) as exc:
+                # RuntimeError: cifrado; NotImplementedError: compresión no soportada.
+                raise ExtractionError(f"{info.filename}: no se puede leer del ZIP ({exc})") from exc
+            except zlib.error as exc:
+                raise ExtractionError(f"{info.filename}: ZIP dañado ({exc})") from exc
             if len(content) > _ZIP_MAX_XML_BYTES:
                 raise ExtractionError(f"{info.filename}: XML demasiado grande dentro del ZIP")
+            total += len(content)
+            if total > _ZIP_MAX_TOTAL_BYTES:
+                raise ExtractionError("ZIP: demasiados bytes descomprimidos")
             try:
                 root = _unwrap(_parse(content))
             except ExtractionError:
@@ -157,17 +175,37 @@ def _text(el: etree._Element | None, path: str) -> str | None:
 
 def _amount(text: str | None, quantum: Decimal = _CENT) -> Decimal | str | None:
     """Decimal normalizado a `quantum` si no pierde precisión; si no, el texto (lo marca el
-    esquema)."""
+    esquema). La notación científica (`1E+5`) y los valores fuera de rango se rechazan."""
     if text is None:
         return None
+    if "e" in text.lower():
+        return text
     try:
         value = Decimal(text)
+        if not value.is_finite():
+            return text
+        rounded = value.quantize(quantum)
     except InvalidOperation:
         return text
-    if not value.is_finite():
-        return text
-    rounded = value.quantize(quantum)
     return rounded if rounded == value else text
+
+
+def _quantity(text: str | None) -> Decimal | str | None:
+    """Cantidades, precios unitarios y tarifas: hasta 6 decimales, sin ceros de relleno.
+
+    `"19.000000"` → `19`, `"2.500000"` → `2.5` (lo mismo que da la ruta del LLM y GUIA.md).
+    """
+    value = _amount(text, _MICRO)
+    if not isinstance(value, Decimal):
+        return value
+    normalized = value.normalize()
+    # normalize() deja exponente positivo en enteros con ceros (1E+2): se vuelve a entero.
+    exponent = normalized.as_tuple().exponent
+    return (
+        normalized.quantize(Decimal(1))
+        if isinstance(exponent, int) and exponent > 0
+        else normalized
+    )
 
 
 def _sum(values: list[Decimal | str | None]) -> Decimal | str | None:
@@ -220,13 +258,13 @@ def _line(line: etree._Element, qty_tag: str) -> dict[str, Any]:
     tarifa: Decimal | str | None = None
     for sub in line.findall("cac:TaxTotal/cac:TaxSubtotal", NS):
         if _text(sub, "cac:TaxCategory/cac:TaxScheme/cbc:ID") == _IVA:
-            tarifa = _amount(_text(sub, "cac:TaxCategory/cbc:Percent"), _MICRO)
+            tarifa = _quantity(_text(sub, "cac:TaxCategory/cbc:Percent"))
             break
     iva, _ = _taxes(line)
     return {
         "descripcion": _text(line, "cac:Item/cbc:Description"),
-        "cantidad": _amount(_text(line, f"cbc:{qty_tag}"), _MICRO),
-        "valor_unitario": _amount(_text(line, "cac:Price/cbc:PriceAmount"), _MICRO),
+        "cantidad": _quantity(_text(line, f"cbc:{qty_tag}")),
+        "valor_unitario": _quantity(_text(line, "cac:Price/cbc:PriceAmount")),
         "valor_total": _amount(_text(line, "cbc:LineExtensionAmount")),
         "tarifa_iva": tarifa,
         "iva": iva,

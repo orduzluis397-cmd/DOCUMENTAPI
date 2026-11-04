@@ -9,7 +9,7 @@ from app.config import Settings, get_settings
 from app.db.models import AuditEvent, Document
 from app.files import sniff
 from app.main import app
-from app.workers.tasks import mark_processing
+from app.workers.tasks import claim_document
 from tests.conftest import ApiHarness, Tenant
 
 PDF = b"%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
@@ -138,9 +138,13 @@ def test_worker_marks_processing(
     doc_id = uuid.UUID(up.json()[0]["id"])
 
     # Con otra organización, el worker no encuentra el documento (RLS también en el worker).
-    assert mark_processing(doc_id, tenant_b.org_id, app_factory) is None
-    marked = mark_processing(doc_id, tenant_a.org_id, app_factory)
-    assert marked is not None
-    assert marked[0] == "processing"
+    assert claim_document(doc_id, tenant_b.org_id, app_factory) is None
+    claim = claim_document(doc_id, tenant_a.org_id, app_factory)
+    assert claim is not None
+    assert (claim.status, claim.claimed) == ("processing", True)
     status = api.client.get(f"/documents/{doc_id}", headers=tenant_a.headers).json()["status"]
     assert status == "processing"
+    # Un segundo worker no lo reclama mientras el lease está vigente.
+    again = claim_document(doc_id, tenant_a.org_id, app_factory)
+    assert again is not None
+    assert (again.status, again.claimed) == ("processing", False)

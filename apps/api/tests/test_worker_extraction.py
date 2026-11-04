@@ -7,6 +7,7 @@ estado final y auditoría, todo con el rol de la app bajo RLS. LLM y OCR son fal
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -30,14 +31,24 @@ from tests.docs_fixtures import (
     png_with_text,
     text_pdf,
 )
-from tests.fakes import FAKE_MODEL, FAKE_PRICES, FakeOcr, ScriptedTransport, scripted_llm
+from tests.fakes import (
+    FAKE_MODEL,
+    FAKE_PRICES,
+    OUTPUT_TOKENS,
+    FakeOcr,
+    ScriptedTransport,
+    scripted_llm,
+)
 
 
-def _settings(cap: str | None = "0.05") -> Settings:
+def _settings(cap: str | None = "0.05", daily: str | None = "1000") -> Settings:
     return Settings(
         llm_provider="openai",
         llm_model_extraction=FAKE_MODEL,
         llm_max_cost_per_doc_usd=Decimal(cap) if cap else None,
+        llm_daily_budget_usd=Decimal(daily) if daily else None,
+        llm_monthly_budget_usd=Decimal("1000"),
+        llm_max_output_tokens=OUTPUT_TOKENS,
         llm_max_retries=1,
     )
 
@@ -89,7 +100,9 @@ def test_zip_invoice_end_to_end(
     assert fields["numero"]["value"] == "SETP990000001"
     assert fields["total"]["value"] == "140600.00"
     assert fields["retenciones"]["value"] == "5850.00"
-    assert fields["lineas[0].tarifa_iva"]["value"] == "19.000000"
+    # Tarifas y cantidades sin ceros de relleno, igual que GUIA.md y la ruta del LLM.
+    assert fields["lineas[0].tarifa_iva"]["value"] == "19"
+    assert fields["lineas[0].cantidad"]["value"] == "2"
     assert not any(f["is_doubtful"] for f in body["fields"])
 
     with Session(owner_engine) as s:
@@ -146,7 +159,7 @@ def test_pdf_with_llm_end_to_end(
     body = api.client.get(f"/documents/{doc_id}", headers=tenant_a.headers).json()
     assert body["extraction"]["method"] == "pdf_text"
     assert body["extraction"]["model"] == FAKE_MODEL
-    assert body["extraction"]["prompt_version"] == "extraccion-1"
+    assert body["extraction"]["prompt_version"] == "extraccion-2"
     fields = {f["name"]: f for f in body["fields"]}
     assert fields["nit_cobrador"]["is_doubtful"] is True
     assert fields["nit_cobrador"]["value"] is None
@@ -215,6 +228,47 @@ def test_worker_respects_rls_and_is_idempotent(
     assert process(doc_id, tenant_a.org_id, worker) == "extracted"
     body = api.client.get(f"/documents/{doc_id}", headers=tenant_b.headers)
     assert body.status_code == 404
+
+
+def _set_processing(owner_engine: Engine, doc_id: uuid.UUID, minutes_ago: int) -> None:
+    with Session(owner_engine) as s:
+        doc = s.get_one(Document, doc_id)
+        doc.status = "processing"
+        doc.processing_started_at = datetime.now(UTC) - timedelta(minutes=minutes_ago)
+        s.commit()
+
+
+def test_processing_with_live_lease_is_not_taken(
+    api: ApiHarness, worker: WorkerDeps, owner_engine: Engine, tenant_a: Tenant
+) -> None:
+    # Otro worker lo está procesando (lease vigente): una reentrega no lo toca.
+    doc_id = _upload(api, tenant_a, "f.xml", invoice_xml().encode("utf-8"))
+    _set_processing(owner_engine, doc_id, minutes_ago=1)
+    assert _run_task(doc_id, tenant_a) == "processing"
+    with Session(owner_engine) as s:
+        assert s.scalars(select(Extraction).where(Extraction.document_id == doc_id)).all() == []
+
+
+def test_processing_with_expired_lease_is_reclaimed(
+    api: ApiHarness, worker: WorkerDeps, owner_engine: Engine, tenant_a: Tenant
+) -> None:
+    # El worker anterior se cayó hace más que el lease (900 s): Celery reentrega y se retoma.
+    doc_id = _upload(api, tenant_a, "f.xml", invoice_xml().encode("utf-8"))
+    _set_processing(owner_engine, doc_id, minutes_ago=30)
+    assert _run_task(doc_id, tenant_a) == "extracted"
+    with Session(owner_engine) as s:
+        assert s.get_one(Document, doc_id).processing_started_at is None
+
+
+def test_llm_without_daily_budget_fails_closed(
+    api: ApiHarness, worker: WorkerDeps, owner_engine: Engine, tenant_a: Tenant
+) -> None:
+    worker.settings = _settings(daily=None)
+    worker.llm_client = lambda _s: pytest.fail("sin presupuesto no se construye el cliente")
+    doc_id = _upload(api, tenant_a, "cuenta.pdf", text_pdf(CUENTA_COBRO_LINES))
+    assert _run_task(doc_id, tenant_a) == "failed"
+    with Session(owner_engine) as s:
+        assert "LLM_DAILY_BUDGET_USD" in (s.get_one(Document, doc_id).error or "")
 
 
 def test_unexpected_error_marks_failed(

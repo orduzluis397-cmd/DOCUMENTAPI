@@ -42,13 +42,14 @@ def failed_fields(validaciones: Iterable[ResultadoValidacion]) -> set[str]:
     }
 
 
-def _matches(path: str, prefixes: Iterable[str]) -> bool:
+def in_scope(path: str, prefixes: Iterable[str]) -> bool:
+    """`lineas[0].iva` está en el alcance de `lineas`; `nit_emisor` en el de `nit_emisor`."""
     return any(path == p or path.startswith((p + "[", p + ".")) for p in prefixes)
 
 
 def to_field_values(doc: Documento, doubtful: Iterable[str]) -> list[FieldValue]:
     marks = set(doubtful)
-    return [FieldValue(name, value, _matches(name, marks)) for name, value in flatten(doc)]
+    return [FieldValue(name, value, in_scope(name, marks)) for name, value in flatten(doc)]
 
 
 def _path(loc: tuple[int | str, ...]) -> str:
