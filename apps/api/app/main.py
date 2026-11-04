@@ -7,21 +7,32 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.config import get_settings
-from app.routers import documents, fields
+from app.routers import consent, documents, fields
 
 settings = get_settings()
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 
+
+def _allowed_headers() -> list[str]:
+    headers = ["Content-Type", "Authorization"]
+    if settings.auth_provider == "stub":
+        # Stub de autenticación local (app/auth.py).
+        headers += ["X-User-Id", "X-Organization-Id"]
+    return headers
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH"],
-    # X-User-Id / X-Organization-Id: stub de autenticación local (app/auth.py).
-    allow_headers=["Content-Type", "Authorization", "X-User-Id", "X-Organization-Id"],
+    # Sin cookies: la web manda el token en Authorization (Bearer).
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=_allowed_headers(),
+    max_age=600,
 )
 
+app.include_router(consent.router)
 app.include_router(documents.router)
 app.include_router(fields.router)
 

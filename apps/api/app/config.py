@@ -5,13 +5,19 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Valores por defecto = los de desarrollo local de `.env.example` e `infra/docker-compose.yml`.
 # No son secretos reales; en cualquier entorno desplegado se sobreescriben por variables.
 _LOCAL_DB = "postgresql+psycopg://contable_app:contable_app_local@127.0.0.1:5432/contable_ia"
 _LOCAL_DB_MIGRATIONS = "postgresql+psycopg://contable:contable_local@127.0.0.1:5432/contable_ia"
+# Copia del texto de la autorización de datos (docs/legal) en el repositorio; en la imagen de
+# Docker se copia a /app/legal y se apunta con CONSENT_DOCUMENT_PATH.
+_REPO_CONSENT = Path(__file__).resolve().parents[3] / "docs/legal/autorizacion-uso-documentos.md"
+
+# Entornos donde se admite el stub de autenticación por cabeceras (app/auth.py).
+STUB_AUTH_ENVS = frozenset({"local", "test"})
 
 
 class Settings(BaseSettings):
@@ -26,7 +32,27 @@ class Settings(BaseSettings):
     app_name: str = "Contable IA API"
     app_env: Literal["local", "test", "staging", "production"] = "local"
     app_version: str = "0.1.0"
+    # Orígenes permitidos (separados por coma). En la demo: SOLO el dominio de Vercel.
     cors_origins: str = "http://localhost:3000"
+
+    # ---- Autenticación. `stub` (cabeceras X-User-Id/X-Organization-Id) solo en local/test;
+    # en staging/production es obligatorio `clerk` (se valida al arrancar).
+    auth_provider: Literal["stub", "clerk"] = "stub"
+    # Emisor de los JWT de Clerk = Frontend API URL (https://<app>.clerk.accounts.dev o el
+    # dominio propio). Los JWKS se leen de <issuer>/.well-known/jwks.json salvo CLERK_JWKS_URL.
+    clerk_issuer: str | None = None
+    clerk_jwks_url: str | None = None
+    # Valores aceptados en el claim `azp` (origen de la web), separados por coma. Obligatorio
+    # fuera de local/test.
+    clerk_authorized_parties: str = ""
+    # Audiencia esperada (`aud`), solo si se configuró en una plantilla de JWT de Clerk.
+    clerk_audience: str | None = None
+    clerk_jwks_cache_s: int = Field(default=3600, ge=60)
+    clerk_leeway_s: int = Field(default=5, ge=0, le=60)
+
+    # ---- Autorización de uso de datos (Ley 1581): texto y etiqueta de versión.
+    consent_document_path: Path = _REPO_CONSENT
+    consent_version_label: str = "borrador-2026-11-04"
 
     # PostgreSQL. La app usa SIEMPRE el rol sin BYPASSRLS (contable_app); el dueño del esquema
     # (contable) solo se usa en migraciones.
@@ -38,8 +64,11 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://127.0.0.1:6379/2"
     # En pruebas: ejecuta las tareas en el mismo proceso, sin broker.
     celery_task_always_eager: bool = False
+    # Segundos que el worker espera en cada BRPOP antes de volver a preguntar. En Upstash (cuota
+    # de comandos) conviene 30: la tarea igual llega al instante; solo baja el sondeo en vacío.
+    celery_broker_polling_interval_s: float | None = Field(default=None, gt=0, le=300)
 
-    # Almacenamiento de objetos (MinIO en local; R2/S3 en la nube).
+    # Almacenamiento de objetos (MinIO en local; Supabase Storage vía su endpoint S3 en la demo).
     s3_endpoint_url: str | None = "http://127.0.0.1:9000"
     s3_region: str = "us-east-1"
     s3_bucket: str = "contable-ia-documents"
@@ -110,6 +139,10 @@ class Settings(BaseSettings):
         "llm_prices_path",
         "tesseract_cmd",
         "tessdata_prefix",
+        "clerk_issuer",
+        "clerk_jwks_url",
+        "clerk_audience",
+        "celery_broker_polling_interval_s",
         mode="before",
     )
     @classmethod
@@ -119,9 +152,38 @@ class Settings(BaseSettings):
             return None
         return value
 
+    @model_validator(mode="after")
+    def _deployed_requires_real_auth(self) -> "Settings":
+        # Falla al arrancar en vez de quedar abierta: fuera de local/test no hay stub.
+        if self.app_env in STUB_AUTH_ENVS:
+            return self
+        if self.auth_provider != "clerk":
+            raise ValueError(f"APP_ENV={self.app_env} exige AUTH_PROVIDER=clerk")
+        if not self.clerk_issuer or not self.clerk_issuer.startswith("https://"):
+            raise ValueError("CLERK_ISSUER (https://...) es obligatorio fuera de local/test")
+        if not self.clerk_authorized_party_list:
+            raise ValueError("CLERK_AUTHORIZED_PARTIES es obligatorio fuera de local/test")
+        if any(o == "*" for o in self.cors_origin_list):
+            raise ValueError("CORS_ORIGINS no puede ser '*' fuera de local/test")
+        return self
+
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        return [o.strip().rstrip("/") for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def clerk_authorized_party_list(self) -> list[str]:
+        return [
+            o.strip().rstrip("/") for o in self.clerk_authorized_parties.split(",") if o.strip()
+        ]
+
+    @property
+    def clerk_jwks_endpoint(self) -> str | None:
+        if self.clerk_jwks_url:
+            return self.clerk_jwks_url
+        if self.clerk_issuer:
+            return self.clerk_issuer.rstrip("/") + "/.well-known/jwks.json"
+        return None
 
 
 @lru_cache

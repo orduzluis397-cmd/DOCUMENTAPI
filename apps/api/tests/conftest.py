@@ -36,8 +36,11 @@ from sqlalchemy import Engine, create_engine, text  # noqa: E402
 from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 
 from alembic import command  # noqa: E402
+from app.config import get_settings  # noqa: E402
+from app.consent import load_consent_document  # noqa: E402
 from app.db.models import (  # noqa: E402
     AuditEvent,
+    DataUseConsent,
     Document,
     ExtractedField,
     Extraction,
@@ -109,8 +112,16 @@ class Tenant:
         return {"X-User-Id": str(self.user_id), "X-Organization-Id": str(self.org_id)}
 
 
-def create_tenant(owner_engine: Engine, name: str) -> Tenant:
-    """Crea una organización completa con el rol dueño (superusuario: ignora RLS)."""
+def current_consent_sha() -> str:
+    s = get_settings()
+    return load_consent_document(s.consent_document_path, s.consent_version_label).sha256
+
+
+def create_tenant(owner_engine: Engine, name: str, *, consent: bool = True) -> Tenant:
+    """Crea una organización completa con el rol dueño (superusuario: ignora RLS).
+
+    Con `consent=True` el usuario ya aceptó la autorización de uso de datos vigente.
+    """
     org_id, user_id, doc_id, ext_id = (uuid.uuid4() for _ in range(4))
     field_id, doubtful_id = uuid.uuid4(), uuid.uuid4()
     with Session(owner_engine) as s:
@@ -118,6 +129,15 @@ def create_tenant(owner_engine: Engine, name: str) -> Tenant:
         s.flush()
         s.add(User(id=user_id, organization_id=org_id, email=f"{org_id}@test.local"))
         s.flush()
+        if consent:
+            s.add(
+                DataUseConsent(
+                    organization_id=org_id,
+                    user_id=user_id,
+                    version="test",
+                    text_sha256=current_consent_sha(),
+                )
+            )
         s.add(
             Document(
                 id=doc_id,
@@ -203,6 +223,9 @@ class FakeStorage:
 
     def get(self, key: str) -> bytes:
         return self.objects[key][0]
+
+    def delete(self, key: str) -> None:
+        self.objects.pop(key, None)
 
 
 @dataclass

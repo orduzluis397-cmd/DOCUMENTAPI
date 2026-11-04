@@ -78,6 +78,8 @@ class Organization(Base):
     id: Mapped[uuid.UUID] = _uuid_pk()
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     nit: Mapped[str | None] = mapped_column(String(20))
+    # Id de la organización en el proveedor de autenticación (Clerk `org_...`).
+    external_auth_id: Mapped[str | None] = mapped_column(String(200), unique=True)
     created_at: Mapped[datetime] = _created_at()
 
 
@@ -86,6 +88,8 @@ class User(Base):
     __table_args__ = (
         UniqueConstraint("organization_id", "email"),
         UniqueConstraint("id", "organization_id"),
+        # Un usuario de Clerk puede pertenecer a varias organizaciones: una fila por cada una.
+        UniqueConstraint("organization_id", "external_auth_id"),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -93,8 +97,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(200))
     role: Mapped[str] = mapped_column(String(30), nullable=False, default="member")
-    # Identificador del proveedor de autenticación (Clerk/Auth.js), pendiente de F0-13+.
-    external_auth_id: Mapped[str | None] = mapped_column(String(200), unique=True)
+    # Identificador del usuario en el proveedor de autenticación (Clerk `user_...`).
+    external_auth_id: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = _created_at()
 
 
@@ -245,6 +249,29 @@ class AuditEvent(Base):
     )
 
 
+class DataUseConsent(Base):
+    """Aceptación de la autorización de uso de documentos (Ley 1581 de 2012) por usuario.
+
+    Se guarda la versión y el SHA-256 del texto que vio el usuario. Sin aceptación vigente no
+    se puede subir documentos. Cada aceptación deja además un evento en `audit_events`.
+    """
+
+    __tablename__ = "data_use_consents"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id", "text_sha256"),
+        ForeignKeyConstraint(["user_id", "organization_id"], ["users.id", "users.organization_id"]),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    organization_id: Mapped[uuid.UUID] = _org_fk()
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    version: Mapped[str] = mapped_column(String(100), nullable=False)
+    text_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    accepted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 # Tablas de negocio con RLS por organization_id (la migración las recorre).
 TENANT_TABLES: tuple[str, ...] = (
     "users",
@@ -253,4 +280,5 @@ TENANT_TABLES: tuple[str, ...] = (
     "extracted_fields",
     "llm_calls",
     "audit_events",
+    "data_use_consents",
 )
