@@ -95,3 +95,6 @@ desktop.ini
 
 # Claude Code: configuración local del usuario
 .claude/settings.local.json
+
+# Copias de trabajo de los agentes de Claude Code
+.claude/worktrees/
