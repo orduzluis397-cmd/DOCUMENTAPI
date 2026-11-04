@@ -1,0 +1,111 @@
+name: Deploy (demo)
+
+# Despliegue de la demo técnica (CR-005). APAGADO por defecto: solo corre si la variable del
+# repositorio DEPLOY_ENABLED vale "true" (Settings → Secrets and variables → Actions →
+# Variables). Se dispara cuando la CI de `main` termina en verde (o a mano).
+#
+# Pasos: bootstrap.sql (idempotente) → alembic upgrade head → bootstrap.sql otra vez (revoca a
+# anon/authenticated lo que creen las migraciones) → deploy hook de Render → deploy hook de
+# Vercel. Si falta un secreto, ese paso se omite con un aviso; si falla la migración, NO se
+# libera nada. Guía: docs/deploy/GUIA-DESPLIEGUE.md
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Migrar y desplegar
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Entorno de GitHub: permite exigir aprobación manual antes de cada despliegue
+    # (Settings → Environments → demo → Required reviewers).
+    environment: demo
+    env:
+      DATABASE_URL_MIGRATIONS: ${{ secrets.DATABASE_URL_MIGRATIONS }}
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+    steps:
+      - name: Secretos disponibles
+        id: check
+        run: |
+          has() { if [ -n "$1" ]; then echo true; else echo false; fi; }
+          {
+            echo "db=$(has "${DATABASE_URL_MIGRATIONS}")"
+            echo "render=$(has "${RENDER_DEPLOY_HOOK_URL}")"
+            echo "vercel=$(has "${VERCEL_DEPLOY_HOOK_URL}")"
+          } >> "$GITHUB_OUTPUT"
+          if [ -z "${DATABASE_URL_MIGRATIONS}" ]; then
+            echo "::warning::Falta el secreto DATABASE_URL_MIGRATIONS: no se migra ni se despliega."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.db == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Instalar uv
+        if: steps.check.outputs.db == 'true'
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.7"
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+
+      - name: Dependencias de la API (sin desarrollo)
+        if: steps.check.outputs.db == 'true'
+        working-directory: apps/api
+        run: |
+          uv python install 3.12
+          uv sync --locked --no-dev
+
+      - name: bootstrap.sql (antes de migrar)
+        if: steps.check.outputs.db == 'true'
+        run: |
+          # psql usa la URL de libpq (sin el "+psycopg" de SQLAlchemy).
+          pg_url="${DATABASE_URL_MIGRATIONS/postgresql+psycopg:/postgresql:}"
+          psql "${pg_url}" -v ON_ERROR_STOP=1 -q -f infra/deploy/supabase/bootstrap.sql
+
+      - name: alembic upgrade head
+        if: steps.check.outputs.db == 'true'
+        working-directory: apps/api
+        run: uv run --no-sync alembic upgrade head
+
+      - name: bootstrap.sql (después de migrar)
+        if: steps.check.outputs.db == 'true'
+        run: |
+          pg_url="${DATABASE_URL_MIGRATIONS/postgresql+psycopg:/postgresql:}"
+          psql "${pg_url}" -v ON_ERROR_STOP=1 -q -f infra/deploy/supabase/bootstrap.sql
+
+      - name: Deploy hook de Render (API + worker)
+        if: steps.check.outputs.db == 'true'
+        run: |
+          if [ -z "${RENDER_DEPLOY_HOOK_URL}" ]; then
+            echo "::warning::Falta RENDER_DEPLOY_HOOK_URL: no se desplegó la API."
+            exit 0
+          fi
+          curl -fsS -X POST -o /dev/null "${RENDER_DEPLOY_HOOK_URL}"
+          echo "Render: despliegue solicitado" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy hook de Vercel (web)
+        if: steps.check.outputs.db == 'true'
+        run: |
+          if [ -z "${VERCEL_DEPLOY_HOOK_URL}" ]; then
+            echo "::warning::Falta VERCEL_DEPLOY_HOOK_URL: no se desplegó la web."
+            exit 0
+          fi
+          curl -fsS -X POST -o /dev/null "${VERCEL_DEPLOY_HOOK_URL}"
+          echo "Vercel: despliegue solicitado" >> "$GITHUB_STEP_SUMMARY"

@@ -14,7 +14,11 @@ _LOCAL_DB = "postgresql+psycopg://contable_app:contable_app_local@127.0.0.1:5432
 _LOCAL_DB_MIGRATIONS = "postgresql+psycopg://contable:contable_local@127.0.0.1:5432/contable_ia"
 # Copia del texto de la autorización de datos (docs/legal) en el repositorio; en la imagen de
 # Docker se copia a /app/legal y se apunta con CONSENT_DOCUMENT_PATH.
-_REPO_CONSENT = Path(__file__).resolve().parents[3] / "docs/legal/autorizacion-uso-documentos.md"
+# (apps/api/app/config.py → raíz del repo; en la imagen la ruta no existe y se usa la variable).
+_APP_PARENTS = Path(__file__).resolve().parents
+_REPO_CONSENT = (
+    _APP_PARENTS[3] if len(_APP_PARENTS) > 3 else _APP_PARENTS[-1]
+) / "docs/legal/autorizacion-uso-documentos.md"
 
 # Entornos donde se admite el stub de autenticación por cabeceras (app/auth.py).
 STUB_AUTH_ENVS = frozenset({"local", "test"})
