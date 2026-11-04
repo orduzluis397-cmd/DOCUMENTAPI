@@ -45,8 +45,33 @@ jobs:
       - name: mypy
         run: uv run mypy app tests
 
+      # Mismo Postgres que en local: imagen pgvector fijada en compose y los scripts de
+      # infra/postgres/initdb (rol contable_app sin BYPASSRLS y base contable_ia_test).
+      - name: Postgres (docker compose)
+        working-directory: .
+        run: |
+          docker compose -f infra/docker-compose.yml up -d --wait postgres
+          # El healthcheck usa el socket local y puede pasar mientras corre initdb; se espera a
+          # que el rol de la app entre por TCP a la base de pruebas.
+          for i in $(seq 1 30); do
+            if docker compose -f infra/docker-compose.yml exec -T -e PGPASSWORD=contable_app_local \
+                postgres psql -h 127.0.0.1 -U contable_app -d contable_ia_test -c 'SELECT 1' >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -f infra/docker-compose.yml logs postgres
+          exit 1
+
       - name: pytest
+        env:
+          REQUIRE_DB: "1"
         run: uv run pytest
+
+      - name: Logs de Postgres (si falla)
+        if: failure()
+        working-directory: .
+        run: docker compose -f infra/docker-compose.yml logs postgres
 
   web:
     name: Web · lint, tipos y build
