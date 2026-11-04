@@ -13,6 +13,8 @@ ALLOWED_TYPES: dict[str, str] = {
     "image/jpeg": ".jpg",
     "image/tiff": ".tif",
     "application/xml": ".xml",
+    # ZIP de factura electrónica (AttachedDocument + representación gráfica).
+    "application/zip": ".zip",
 }
 
 _UTF8_BOM = b"\xef\xbb\xbf"
@@ -30,6 +32,8 @@ class DetectedType:
 
 def sniff(data: bytes) -> str | None:
     """Devuelve el tipo MIME según la firma del contenido, o None si no es un tipo permitido."""
+    if data.startswith(b"PK\x03\x04"):
+        return "application/zip"
     if data.startswith(b"%PDF-"):
         return "application/pdf"
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -62,6 +66,6 @@ def validate(data: bytes, max_bytes: int) -> DetectedType:
     content_type = sniff(data)
     if content_type is None:
         raise InvalidFileError(
-            "Tipo de archivo no permitido (se aceptan PDF, PNG, JPEG, TIFF, XML)."
+            "Tipo de archivo no permitido (se aceptan PDF, PNG, JPEG, TIFF, XML, ZIP)."
         )
     return DetectedType(content_type=content_type, extension=ALLOWED_TYPES[content_type])

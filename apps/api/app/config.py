@@ -1,9 +1,11 @@
 """Configuración de la API leída de variables de entorno (ver `.env.example`)."""
 
+from decimal import Decimal
 from functools import lru_cache
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Valores por defecto = los de desarrollo local de `.env.example` e `infra/docker-compose.yml`.
@@ -47,6 +49,56 @@ class Settings(BaseSettings):
     # Carga de documentos.
     upload_max_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
     upload_max_files: int = Field(default=20, gt=0)
+
+    # ---- LLM (F0-10). La temperatura NO es configurable: va fija en 0 en app/llm/base.py.
+    llm_provider: Literal["anthropic", "openai", "vllm"] = "anthropic"
+    llm_model_extraction: str | None = None
+    # Modelo de clasificación; si falta, se usa el de extracción.
+    llm_model_classification: str | None = None
+    anthropic_api_key: SecretStr | None = None
+    openai_api_key: SecretStr | None = None
+    vllm_base_url: str | None = None
+    vllm_api_key: SecretStr | None = None
+    llm_timeout_s: float = Field(default=60.0, gt=0)
+    llm_max_output_tokens: int = Field(default=4096, gt=0)
+    # Reintentos acotados tras el primer intento (esquema o validadores de dominio).
+    llm_max_retries: int = Field(default=2, ge=0, le=5)
+    # Tope de costo por documento (USD). Sin tope configurado NO se llama al LLM (falla cerrado).
+    llm_max_cost_per_doc_usd: Decimal | None = Field(default=None, gt=0)
+    # Tabla de precios (YAML). Por defecto, app/llm/prices.yaml.
+    llm_prices_path: Path | None = None
+    # Máximo de caracteres de texto que se envían al LLM (acota el costo).
+    llm_max_input_chars: int = Field(default=40_000, gt=0)
+
+    # ---- OCR / PDF.
+    tesseract_cmd: str | None = None
+    # Carpeta con los modelos de idioma (spa.traineddata). Si falta, Tesseract usa la suya.
+    tessdata_prefix: str | None = None
+    ocr_lang: str = "spa"
+    ocr_dpi: int = Field(default=300, ge=72, le=600)
+    ocr_max_pages: int = Field(default=10, gt=0)
+    # Un PDF tiene capa de texto si trae al menos estos caracteres visibles por página.
+    pdf_min_chars_per_page: int = Field(default=25, ge=1)
+
+    @field_validator(
+        "llm_model_extraction",
+        "llm_model_classification",
+        "anthropic_api_key",
+        "openai_api_key",
+        "vllm_base_url",
+        "vllm_api_key",
+        "llm_max_cost_per_doc_usd",
+        "llm_prices_path",
+        "tesseract_cmd",
+        "tessdata_prefix",
+        mode="before",
+    )
+    @classmethod
+    def _empty_as_none(cls, value: Any) -> Any:
+        # `.env.example` deja estas variables vacías: vacío significa "no configurado".
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @property
     def cors_origin_list(self) -> list[str]:
