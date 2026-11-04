@@ -14,7 +14,7 @@
 | CR-001 | 2026-11-03 | Repo privado durante el desarrollo | menor | rechazado (reemplazado por CR-002) |
 | CR-002 | 2026-11-03 | Repo público desde ya | menor | hecho |
 | CR-003 | 2026-11-03 | pypdfium2 en lugar de PyMuPDF en la API | mayor | hecho |
-| CR-004 | 2026-11-04 | Excepción a la regla dura 3 para el extractor v0 (PR #30) | crítico | esperando aprobación |
+| CR-004 | 2026-11-04 | Excepción a la regla dura 3 para el extractor v0 (PR #30) | crítico | aprobado |
 
 ---
 
@@ -88,8 +88,8 @@
 - **Costo, calendario y riesgo:** sin costo (no hay llamadas reales). Riesgo: entra código de extracción sin puerta de regresión; mitigado porque no hay usuarios ni producción.
 - **Reglas duras involucradas:** 3
 - **Plan:** 1. Revisión independiente `evals-calidad`. 2. Aprobación del usuario. 3. Merge de #30.
-- **Aprobación del usuario:** pendiente
-- **Estado:** esperando aprobación
+- **Aprobación del usuario:** aprobada el 2026-11-04 ("apruebo el merge")
+- **Estado:** aprobado (merge tras la revisión independiente)
 - **Verificación:** —
 - **Commits / PR:** #30
 
