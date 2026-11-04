@@ -1,4 +1,4 @@
-"""Carga, listado, detalle y archivo de documentos; tarea del worker (stub)."""
+"""Carga, listado, detalle y archivo de documentos; paso `queued` → `processing` del worker."""
 
 import uuid
 
@@ -9,7 +9,7 @@ from app.config import Settings, get_settings
 from app.db.models import AuditEvent, Document
 from app.files import sniff
 from app.main import app
-from app.workers.tasks import mark_processing
+from app.workers.tasks import claim_document
 from tests.conftest import ApiHarness, Tenant
 
 PDF = b"%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
@@ -23,6 +23,7 @@ def test_sniff_detects_real_type() -> None:
     assert sniff(b"\xff\xd8\xff\xe0" + b"\x00" * 8) == "image/jpeg"
     assert sniff(b"II*\x00rest") == "image/tiff"
     assert sniff(XML) == "application/xml"
+    assert sniff(b"PK\x03\x04resto-del-zip") == "application/zip"
     assert sniff(b"\xef\xbb\xbf<Invoice/>") == "application/xml"
     assert sniff(b"MZ\x90\x00 ejecutable") is None
     assert sniff(b"texto plano") is None
@@ -137,7 +138,13 @@ def test_worker_marks_processing(
     doc_id = uuid.UUID(up.json()[0]["id"])
 
     # Con otra organización, el worker no encuentra el documento (RLS también en el worker).
-    assert mark_processing(doc_id, tenant_b.org_id, app_factory) is None
-    assert mark_processing(doc_id, tenant_a.org_id, app_factory) == "processing"
+    assert claim_document(doc_id, tenant_b.org_id, app_factory) is None
+    claim = claim_document(doc_id, tenant_a.org_id, app_factory)
+    assert claim is not None
+    assert (claim.status, claim.claimed) == ("processing", True)
     status = api.client.get(f"/documents/{doc_id}", headers=tenant_a.headers).json()["status"]
     assert status == "processing"
+    # Un segundo worker no lo reclama mientras el lease está vigente.
+    again = claim_document(doc_id, tenant_a.org_id, app_factory)
+    assert again is not None
+    assert (again.status, again.claimed) == ("processing", False)

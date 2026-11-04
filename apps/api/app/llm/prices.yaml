@@ -1,0 +1,15 @@
+# Precios de modelos LLM en USD por millón de tokens (F0-10).
+# Se usan para calcular llm_calls.cost_usd y aplicar LLM_MAX_COST_PER_DOC_USD.
+# Un modelo que no está aquí NO se llama (falla cerrado).
+#
+# Vacía a propósito: el modelo de extracción aún no está elegido ni aprobado el gasto.
+# Al elegirlo, copia el precio de la página oficial del proveedor e indica la fuente y la fecha:
+#
+#   - proveedor: anthropic          # anthropic | openai | vllm
+#     modelo: <id exacto del modelo>
+#     usd_por_millon_entrada: "0.00"
+#     usd_por_millon_salida: "0.00"
+#     vigente_desde: 2026-11-04
+#     fuente: "<URL de precios>, consultada el 2026-11-04"
+version: 1
+precios: []
