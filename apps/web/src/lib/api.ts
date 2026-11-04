@@ -1,5 +1,7 @@
 "use client";
 
+import { CLERK_ENABLED } from "@/lib/auth-config";
+import { getAuthToken } from "@/lib/auth-token";
 import { getSession } from "@/lib/session";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(
@@ -61,18 +63,34 @@ export class ApiError extends Error {
   }
 }
 
-function authHeaders(): Record<string, string> {
+export type Consent = {
+  version: string;
+  sha256: string;
+  is_draft: boolean;
+  text: string;
+  accepted: boolean;
+  accepted_at: string | null;
+};
+
+async function authHeaders(): Promise<Record<string, string>> {
+  if (CLERK_ENABLED) {
+    // Token de sesión de Clerk (incluye la organización activa); Clerk lo renueva solo.
+    const token = await getAuthToken();
+    if (!token) throw new ApiError(401, "No hay sesión. Inicia sesión de nuevo.");
+    return { Authorization: `Bearer ${token}` };
+  }
   const session = getSession();
   if (!session) throw new ApiError(401, "No hay sesión. Inicia sesión de nuevo.");
   return { "X-User-Id": session.userId, "X-Organization-Id": session.organizationId };
 }
 
 async function request(path: string, init: RequestInit = {}): Promise<Response> {
+  const auth = await authHeaders();
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, {
       ...init,
-      headers: { ...authHeaders(), ...init.headers },
+      headers: { ...auth, ...init.headers },
       cache: "no-store",
     });
   } catch {
@@ -116,6 +134,23 @@ export async function correctField(id: string, value: JsonValue): Promise<Extrac
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ corrected_value: value }),
+  });
+  return res.json();
+}
+
+export async function deleteDocument(id: string): Promise<void> {
+  await request(`/documents/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function getConsent(): Promise<Consent> {
+  return (await request("/consent")).json();
+}
+
+export async function acceptConsent(version: string): Promise<Consent> {
+  const res = await request("/consent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version }),
   });
   return res.json();
 }

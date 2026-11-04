@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { AuthGate } from "@/components/auth-gate";
+import { ConsentGate } from "@/components/consent-gate";
+import { DeleteDocumentButton } from "@/components/delete-document-button";
 import { StatusBadge } from "@/components/status-badge";
 import { UploadZone } from "@/components/upload-zone";
 import { listDocuments, type DocumentSummary } from "@/lib/api";
@@ -30,7 +32,9 @@ function DocumentsView() {
         </p>
       </div>
 
-      <UploadZone onUploaded={(added) => setDocs((prev) => [...added, ...(prev ?? [])])} />
+      <ConsentGate>
+        <UploadZone onUploaded={(added) => setDocs((prev) => [...added, ...(prev ?? [])])} />
+      </ConsentGate>
 
       {error && (
         <p role="alert" className="text-sm text-destructive">
@@ -54,6 +58,9 @@ function DocumentsView() {
                 <th className="px-4 py-2 font-medium">Estado</th>
                 <th className="px-4 py-2 text-right font-medium">Tamaño</th>
                 <th className="px-4 py-2 text-right font-medium">Subido</th>
+                <th className="px-4 py-2">
+                  <span className="sr-only">Acciones</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -73,6 +80,14 @@ function DocumentsView() {
                   </td>
                   <td className="px-4 py-2.5 text-right whitespace-nowrap text-muted-foreground tabular-nums">
                     {formatDate(d.created_at)}
+                  </td>
+                  <td className="px-4 py-1.5 text-right">
+                    <DeleteDocumentButton
+                      compact
+                      id={d.id}
+                      filename={d.filename}
+                      onDeleted={() => setDocs((prev) => (prev ?? []).filter((x) => x.id !== d.id))}
+                    />
                   </td>
                 </tr>
               ))}
