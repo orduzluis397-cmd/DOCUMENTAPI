@@ -7,13 +7,15 @@ from pathlib import PurePath
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.config import Settings, get_settings
-from app.db.models import Document, ExtractedField, Extraction
+from app.consent import accepted_at
+from app.db.models import Document, ExtractedField, Extraction, LlmCall
 from app.deps import CurrentPrincipal, DbSession, Enqueue, Storage
 from app.files import InvalidFileError, validate
 from app.governance import audit
+from app.routers.consent import CurrentConsent
 from app.routers.dto import DocumentDetailOut, DocumentOut, ExtractionOut, FieldOut
 
 logger = logging.getLogger(__name__)
@@ -35,7 +37,14 @@ def upload_documents(
     storage: Storage,
     enqueue: Enqueue,
     settings: Annotated[Settings, Depends(get_settings)],
+    consent: CurrentConsent,
 ) -> list[Document]:
+    # Sin la autorización de uso de datos vigente aceptada, no se recibe ningún archivo.
+    if accepted_at(db, principal.user_id, consent) is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Debes aceptar la autorización de uso de documentos antes de subir archivos.",
+        )
     if not files:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No se envió ningún archivo.")
     if len(files) > settings.upload_max_files:
@@ -163,3 +172,48 @@ def get_document_file(document_id: uuid.UUID, db: DbSession, storage: Storage) -
             "Cache-Control": "private, no-store",
         },
     )
+
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document(
+    document_id: uuid.UUID, db: DbSession, principal: CurrentPrincipal, storage: Storage
+) -> Response:
+    """Borra el archivo del almacenamiento y las filas del documento (extracción y campos).
+
+    Orden: se bloquea y borra en la transacción, se borra el objeto y solo entonces se hace
+    commit. Si falla el almacenamiento, no se borra nada en la BD; si falla el commit, el
+    documento sigue y se puede reintentar (borrar un objeto ya borrado no falla en S3).
+    `llm_calls` se conserva (costo y presupuesto) pero se desliga del documento. El evento de
+    auditoría queda; no guarda el nombre del archivo.
+    """
+    doc = db.scalar(select(Document).where(Document.id == document_id).with_for_update())
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento no encontrado.")
+    old_value = {
+        "sha256": doc.sha256,
+        "size_bytes": doc.size_bytes,
+        "content_type": doc.content_type,
+        "status": doc.status,
+        "doc_type": doc.doc_type,
+    }
+    db.execute(update(LlmCall).where(LlmCall.document_id == doc.id).values(document_id=None))
+    db.delete(doc)
+    audit.record(
+        db,
+        organization_id=principal.organization_id,
+        actor=principal.actor,
+        action="document.deleted",
+        entity="documents",
+        entity_id=doc.id,
+        old_value=old_value,
+    )
+    db.flush()
+    try:
+        storage.delete(doc.storage_key)
+    except Exception as exc:
+        logger.exception("No se pudo borrar el archivo del documento %s", doc.id)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "No se pudo borrar el archivo; intenta de nuevo."
+        ) from exc
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

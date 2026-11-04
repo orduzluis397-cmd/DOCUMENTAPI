@@ -1,0 +1,15 @@
+# Contexto de build de infra/deploy/Dockerfile (la raíz del repo). Lista blanca: todo fuera
+# salvo lo que la imagen copia. Nada de data/, .env ni secretos llega al builder.
+*
+!apps/api/pyproject.toml
+!apps/api/uv.lock
+!apps/api/.python-version
+!apps/api/alembic.ini
+!apps/api/alembic/
+!apps/api/app/
+!docs/legal/autorizacion-uso-documentos.md
+!infra/deploy/start.sh
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*

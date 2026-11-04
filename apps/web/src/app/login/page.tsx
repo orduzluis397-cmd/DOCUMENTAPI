@@ -1,18 +1,28 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { CLERK_ENABLED } from "@/lib/auth-config";
 import { DEMO_SESSION, saveSession } from "@/lib/session";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Login PLACEHOLDER de desarrollo. PENDIENTE: Clerk o Auth.js (INSTRUCCIONES.md §8.3).
- * Solo guarda los IDs que la API acepta en local; no hay contraseña ni token.
+ * Acceso de DESARROLLO (sin Clerk). Solo guarda los IDs que la API acepta en local con
+ * AUTH_PROVIDER=stub; no hay contraseña ni token. Con Clerk configurado redirige a /sign-in.
  */
 export default function LoginPage() {
+  const router = useRouter();
+  useEffect(() => {
+    if (CLERK_ENABLED) router.replace("/sign-in");
+  }, [router]);
+  if (CLERK_ENABLED) return null;
+  return <DevLogin />;
+}
+
+function DevLogin() {
   const router = useRouter();
   const [organizationId, setOrganizationId] = useState(DEMO_SESSION.organizationId);
   const [userId, setUserId] = useState(DEMO_SESSION.userId);
@@ -23,7 +33,7 @@ export default function LoginPage() {
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Contable IA</h1>
         <p className="text-sm text-muted-foreground">
-          Acceso de desarrollo. El inicio de sesión real (Clerk o Auth.js) está pendiente.
+          Acceso de desarrollo (sin Clerk). En la demo se entra con Clerk.
         </p>
       </div>
       <form

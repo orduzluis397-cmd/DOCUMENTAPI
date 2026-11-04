@@ -8,17 +8,13 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.auth import Principal, get_principal
+from app.auth import Principal, get_principal, get_session_factory
 from app.db.models import User
-from app.db.session import get_sessionmaker, tenant_session
+from app.db.session import tenant_session
 from app.storage import ObjectStorage, get_storage
 from app.workers.tasks import process_document
 
 EnqueueFn = Callable[[uuid.UUID, uuid.UUID], None]
-
-
-def get_session_factory() -> sessionmaker[Session]:
-    return get_sessionmaker()
 
 
 def get_db(

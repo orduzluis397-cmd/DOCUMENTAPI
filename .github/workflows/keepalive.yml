@@ -1,0 +1,46 @@
+name: Keep-alive (demo)
+
+# Supabase free pausa un proyecto tras 1 semana sin actividad y Render free duerme el servicio
+# tras 15 minutos sin tráfico (https://supabase.com/pricing, https://render.com/docs/free,
+# consultadas el 2026-11-04). Cada 3 días: una consulta mínima a la base (rol de la app, sin
+# tocar datos) y un GET /health a la API. Si faltan los secretos, termina en verde sin hacer
+# nada. Ojo: GitHub desactiva los workflows programados de un repo público tras 60 días sin
+# commits; si pasa, se reactiva en la pestaña Actions.
+
+on:
+  schedule:
+    - cron: "17 13 */3 * *" # 08:17 hora de Colombia, días 1, 4, 7… de cada mes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    name: Ping a Supabase y Render
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RENDER_HEALTH_URL: ${{ secrets.RENDER_HEALTH_URL }}
+    steps:
+      - name: Consulta mínima a Supabase
+        run: |
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "::notice::Sin el secreto DATABASE_URL: se omite Supabase."
+            exit 0
+          fi
+          pg_url="${DATABASE_URL/postgresql+psycopg:/postgresql:}"
+          psql "${pg_url}" -v ON_ERROR_STOP=1 -Atc "SELECT 1" > /dev/null
+          echo "Supabase: ok" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: GET /health a Render
+        run: |
+          if [ -z "${RENDER_HEALTH_URL}" ]; then
+            echo "::notice::Sin el secreto RENDER_HEALTH_URL: se omite Render."
+            exit 0
+          fi
+          # El arranque en frío tarda cerca de un minuto: reintentos con espera.
+          curl -fsS --retry 6 --retry-delay 20 --retry-all-errors --max-time 90 \
+            -o /dev/null "${RENDER_HEALTH_URL}"
+          echo "Render: ok" >> "$GITHUB_STEP_SUMMARY"

@@ -2,10 +2,11 @@
 
 import { ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback } from "react";
 
 import { AuthGate } from "@/components/auth-gate";
+import { DeleteDocumentButton } from "@/components/delete-document-button";
 import { DocumentViewer } from "@/components/document-viewer";
 import { FieldList } from "@/components/field-list";
 import { StatusBadge } from "@/components/status-badge";
@@ -25,6 +26,7 @@ function Detail({ id }: { id: string }) {
   const fetcher = useCallback(() => getDocument(id), [id]);
   const { data: doc, error, setData: setDoc } = useResource(fetcher, isBusy);
   const busy = isBusy(doc);
+  const router = useRouter();
 
   function onFieldChange(updated: ExtractedField) {
     setDoc((prev) =>
@@ -60,7 +62,14 @@ function Detail({ id }: { id: string }) {
                 {doc.extraction && ` · método ${doc.extraction.method}`}
               </p>
             </div>
-            <StatusBadge status={doc.status} />
+            <div className="flex items-center gap-3">
+              <StatusBadge status={doc.status} />
+              <DeleteDocumentButton
+                id={doc.id}
+                filename={doc.filename}
+                onDeleted={() => router.replace("/documents")}
+              />
+            </div>
           </div>
 
           <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">

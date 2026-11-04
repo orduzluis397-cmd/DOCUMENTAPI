@@ -282,6 +282,8 @@ def test_unexpected_error_marks_failed(
         def get(self, key: str) -> bytes:
             raise ConnectionError("almacenamiento caído")
 
+        def delete(self, key: str) -> None: ...
+
     worker.storage = BrokenStorage()
     assert _run_task(doc_id, tenant_a) == "failed"
     with Session(owner_engine) as s:

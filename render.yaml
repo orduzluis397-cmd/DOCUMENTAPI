@@ -1,0 +1,63 @@
+# Blueprint de Render para la demo de Contable IA (CR-005). Guía: docs/deploy/GUIA-DESPLIEGUE.md
+# Un solo web service GRATIS con la API y el worker Celery en el mismo contenedor.
+# Los valores con `sync: false` se piden en el panel al crear el Blueprint: NUNCA van aquí.
+# Spec: https://render.com/docs/blueprint-spec (consultada el 2026-11-04).
+services:
+  - type: web
+    name: contable-ia-api
+    runtime: docker
+    plan: free # sin esto Render crea una instancia de pago
+    region: virginia # no hay región en Sudamérica; la más cercana a São Paulo (Supabase)
+    dockerfilePath: ./infra/deploy/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    # El deploy lo dispara .github/workflows/deploy.yml DESPUÉS de las migraciones.
+    autoDeployTrigger: "off"
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: AUTH_PROVIDER
+        value: clerk
+      # Dominio de Vercel, p. ej. https://contable-ia.vercel.app (sin barra final).
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CLERK_ISSUER
+        sync: false
+      - key: CLERK_AUTHORIZED_PARTIES
+        sync: false
+      # Rol contable_app por el pooler de Supabase (modo sesión, puerto 5432, sslmode=require).
+      - key: DATABASE_URL
+        sync: false
+      # Upstash: rediss://default:<token>@<host>:6379
+      - key: CELERY_BROKER_URL
+        sync: false
+      # Vacío: sin backend de resultados (la API no los usa; ahorra cuota de Upstash).
+      - key: CELERY_RESULT_BACKEND
+        value: ""
+      - key: CELERY_BROKER_POLLING_INTERVAL_S
+        value: "30"
+      # Supabase Storage por S3: https://<ref>.storage.supabase.co/storage/v1/s3
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_BUCKET
+        value: contable-ia-documents
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      # Límite de Supabase free: 50 MB por archivo; aquí 20 MB.
+      - key: UPLOAD_MAX_BYTES
+        value: "20971520"
+      - key: UPLOAD_MAX_FILES
+        value: "10"
+      # Nada de llamadas a LLM externos en la demo (regla dura 1).
+      - key: LLM_EXTERNAL_ENABLED
+        value: "false"
+      - key: OCR_MAX_PAGES
+        value: "5"
+      - key: OCR_DPI
+        value: "200"
