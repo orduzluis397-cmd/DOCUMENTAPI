@@ -20,7 +20,7 @@ el dominio contable colombiano, y un conjunto dorado consistente con el conjunto
 
 ## Alcance
 
-Puedes tocar: `ml/anonymize.py`, `apps/api/app/schemas/`, `apps/api/app/extraction/validators.py`,
+Puedes tocar: `ml/anonymize.py`, `apps/api/app/schemas/`, `apps/api/app/schemas/validators.py`,
 `evals/datasets/` (excepto `golden/test/` una vez congelado), `data/` (solo local, nunca al repo).
 
 Fuera de alcance: extracción con LLM, interfaz, CI.

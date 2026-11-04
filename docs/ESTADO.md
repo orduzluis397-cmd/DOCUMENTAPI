@@ -62,7 +62,12 @@
 - `datos-corpus`: ampliar la regex de NIT del anonimizador a NIT de persona natural (longitud variable) y probarla — regla dura 1.
 - Contador asesor: 11 puntos pendientes al final de `docs/glosario.md`.
 
+## Avance Fase 0
+
+- 2026-11-04: merge #27 (BD con RLS forzado, auditoría inmutable, API, worker stub, web) y #29 (anonimizador, esquemas, validadores, GUIA.md). Cerradas #12, #14, #15, #16, #21, #22, #23. CI 5/5 en verde.
+- Decisión a validar con contador asesor: `total` = valor facturado (`PayableAmount`); retenciones aparte.
+
 ## Próximo paso
 
-- Usuario: recolectar documentos (meta 100 al final de la semana 1).
-- En paralelo (ramas `fase-0/*`): `datos-corpus` → anonimizador, esquemas, validadores, GUIA.md; `extraccion-app` → BD con RLS, API, worker y web.
+- Usuario: recolectar documentos (#11; meta 100 al final de la semana 1).
+- Siguiente encargo: enrutador de extracción F0-09 (#19) + registro en `llm_calls` (#20).
