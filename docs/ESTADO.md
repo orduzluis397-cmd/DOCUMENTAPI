@@ -65,9 +65,10 @@
 ## Avance Fase 0
 
 - 2026-11-04: merge #27 (BD con RLS forzado, auditoría inmutable, API, worker stub, web) y #29 (anonimizador, esquemas, validadores, GUIA.md). Cerradas #12, #14, #15, #16, #21, #22, #23. CI 5/5 en verde.
+- 2026-11-04: merge #30 (extractor v0 en cascada, llm_calls, topes y presupuestos, LLM_EXTERNAL_ENABLED=false). Cerradas #19, #20. Seguimiento en #31. Excepción regla 3: CR-004.
 - Decisión a validar con contador asesor: `total` = valor facturado (`PayableAmount`); retenciones aparte.
 
 ## Próximo paso
 
-- Usuario: recolectar documentos (#11; meta 100 al final de la semana 1).
-- Siguiente encargo: enrutador de extracción F0-09 (#19) + registro en `llm_calls` (#20).
+- Usuario: recolectar documentos (#11) y decidir política de LLM externo (solo anonimizados hasta tener DPA).
+- Bloqueado por datos: conjunto dorado (#17, #18) y línea base (#25). Pendiente de aprobación: despliegue (#24).
