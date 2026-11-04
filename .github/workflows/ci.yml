@@ -73,6 +73,41 @@ jobs:
         working-directory: .
         run: docker compose -f infra/docker-compose.yml logs postgres
 
+  ml:
+    name: ML · anonimizador (prueba rápida, sin modelo spaCy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ml
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.7"
+          enable-cache: true
+          cache-dependency-glob: ml/uv.lock
+
+      # Sin el grupo `modelo` (es_core_news_lg, ~540 MB): solo reconocedores regex.
+      - name: Instalar Python 3.12 y dependencias
+        run: |
+          uv python install 3.12
+          uv sync --locked --no-group modelo
+
+      - name: Ruff (lint)
+        run: uv run --no-sync ruff check .
+
+      - name: Ruff (formato)
+        run: uv run --no-sync ruff format --check .
+
+      - name: mypy
+        run: uv run --no-sync mypy anonymize.py tests
+
+      - name: pytest (sin pruebas del modelo)
+        run: uv run --no-sync pytest -m "not modelo"
+
   web:
     name: Web · lint, tipos y build
     runs-on: ubuntu-latest
@@ -171,5 +206,5 @@ jobs:
       # propios jobs (los hooks locales necesitarían pnpm aquí).
       - name: pre-commit
         env:
-          SKIP: mypy,prettier,eslint,gitleaks
+          SKIP: mypy,mypy-ml,prettier,eslint,gitleaks
         run: uv run --directory apps/api pre-commit run --all-files --show-diff-on-failure
