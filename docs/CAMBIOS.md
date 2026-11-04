@@ -14,6 +14,7 @@
 | CR-001 | 2026-11-03 | Repo privado durante el desarrollo | menor | rechazado (reemplazado por CR-002) |
 | CR-002 | 2026-11-03 | Repo público desde ya | menor | hecho |
 | CR-003 | 2026-11-03 | pypdfium2 en lugar de PyMuPDF en la API | mayor | hecho |
+| CR-004 | 2026-11-04 | Excepción a la regla dura 3 para el extractor v0 (PR #30) | crítico | esperando aprobación |
 
 ---
 
@@ -72,6 +73,25 @@
 - **Estado:** hecho
 - **Verificación:** `uv run pytest` 1 passed; `mypy app` sin errores; `uv.lock` sin pymupdf.
 - **Commits / PR:** ver `git log` (CR-003)
+
+---
+
+### CR-004 · Excepción a la regla dura 3 para el extractor v0
+
+- **Fecha:** 2026-11-04
+- **Pedido del usuario:** — (lo propone el orquestador)
+- **Interpretación:** el PR #30 toca `app/extraction/` y `app/prompts/`; la regla dura 3 exige `evals.yml` en verde, pero `evals.yml` se construye en la Fase 1 y el plan (§8.3–8.4) necesita el extractor v0 en `main` para medir la línea base. Se propone una excepción única: entra con CI verde + revisión independiente de `evals-calidad`; desde la Fase 1 la regla aplica sin excepciones.
+- **Tipo:** crítico (relaja temporalmente una regla dura)
+- **Fases y agentes afectados:** F0 (`extraccion-app`), F1 (`evals-calidad` crea `evals.yml` y lo aplica retroactivamente a este código).
+- **Archivos o módulos:** `apps/api/app/extraction/`, `app/llm/`, `app/prompts/`, `app/observability/`, `app/workers/tasks.py`.
+- **Evals afectadas / nuevas:** la línea base (§8.4) será la primera medición de este código.
+- **Costo, calendario y riesgo:** sin costo (no hay llamadas reales). Riesgo: entra código de extracción sin puerta de regresión; mitigado porque no hay usuarios ni producción.
+- **Reglas duras involucradas:** 3
+- **Plan:** 1. Revisión independiente `evals-calidad`. 2. Aprobación del usuario. 3. Merge de #30.
+- **Aprobación del usuario:** pendiente
+- **Estado:** esperando aprobación
+- **Verificación:** —
+- **Commits / PR:** #30
 
 ---
 
